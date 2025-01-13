@@ -7,4 +7,3 @@ dotenv.config({ path: '.env.test' });
 process.env.ALCHEMY_SUBGRAPH_KEY = process.env.ALCHEMY_SUBGRAPH_KEY || 'test-key';
 process.env.POLYGON_CONTRACT_ADDRESS = process.env.POLYGON_CONTRACT_ADDRESS || '0x1234';
 process.env.BASE_CONTRACT_ADDRESS = process.env.BASE_CONTRACT_ADDRESS || '0x5678';
-process.env.BASE_GOERLI_CONTRACT_ADDRESS = process.env.BASE_GOERLI_CONTRACT_ADDRESS || '0x9012'; 

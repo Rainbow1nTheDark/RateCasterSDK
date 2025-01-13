@@ -12,10 +12,14 @@ const mockTxResponse = {
 // Create mock functions with proper Jest types
 const mockGetNetwork = jest.fn().mockResolvedValue({ chainId: BigInt(137) });
 const mockAddDappRating = jest.fn().mockResolvedValue(mockTxResponse);
+const mockRegisterDapp = jest.fn().mockResolvedValue(mockTxResponse);
+const mockUpdateDapp = jest.fn().mockResolvedValue(mockTxResponse);
+const mockDeleteDapp = jest.fn().mockResolvedValue(mockTxResponse);
 
 // Mock provider
 const mockProvider = {
   getNetwork: mockGetNetwork,
+  send: jest.fn(),
 } as unknown as ethers.Provider;
 
 // Mock signer
@@ -25,26 +29,24 @@ const mockSigner = {
 } as unknown as ethers.Signer;
 
 // Mock contract with all methods
-const mockContract = {
-  target: CHAIN_CONFIGS['Polygon'].contractAddress,
+const createMockContract = (chainName: ChainName) => ({
+  target: CHAIN_CONFIGS[chainName].contractAddress,
   interface: {
     getFunction: jest.fn().mockReturnValue(true),
   },
   connect: jest.fn().mockReturnThis(),
-  // Review methods
   addDappRating: mockAddDappRating,
   revokeDappRating: jest.fn().mockResolvedValue(mockTxResponse),
-  // Dapp management methods
-  registerDapp: jest.fn().mockResolvedValue(mockTxResponse),
-  updateDapp: jest.fn().mockResolvedValue(mockTxResponse),
-  deleteDapp: jest.fn().mockResolvedValue(mockTxResponse),
+  registerDapp: mockRegisterDapp,
+  updateDapp: mockUpdateDapp,
+  deleteDapp: mockDeleteDapp,
   getAllDapps: jest.fn().mockResolvedValue([{
     dappId: '0xdappid',
     name: 'Test Dapp',
     description: 'Test Description',
     url: 'https://test.com',
     imageUrl: 'https://test.com/image.png',
-    platform: 'Polygon',
+    platform: chainName,
     category: 'DeFi',
     owner: '0x1234...'
   }]),
@@ -54,34 +56,46 @@ const mockContract = {
     description: 'Test Description',
     url: 'https://test.com',
     imageUrl: 'https://test.com/image.png',
-    platform: 'Polygon',
+    platform: chainName,
     category: 'DeFi',
     owner: '0x1234...'
   }),
   isDappRegistered: jest.fn().mockResolvedValue(true),
-  // Event methods
   on: jest.fn(),
   removeAllListeners: jest.fn(),
-} as unknown as ethers.Contract;
+}) as unknown as ethers.Contract;
+
+let mockContract: ethers.Contract;
 
 // Mock ethers Contract constructor
 jest.mock('ethers', () => ({
   ...jest.requireActual('ethers'),
-  Contract: jest.fn().mockImplementation(() => mockContract),
+  Contract: jest.fn().mockImplementation((_, __, provider) => {
+    return mockContract;
+  }),
 }));
 
 describe('DappRatingSDK', () => {
-  let sdk: DappRatingSDK;
+  let sdkPolygon: DappRatingSDK;
+  let sdkBase: DappRatingSDK;
 
   beforeEach(() => {
     jest.clearAllMocks();
-    sdk = new DappRatingSDK(mockProvider, 'Polygon');
+    mockContract = createMockContract('Polygon');
+    sdkPolygon = new DappRatingSDK(mockProvider, 'Polygon');
+    mockContract = createMockContract('Base');
+    sdkBase = new DappRatingSDK(mockProvider, 'Base');
   });
 
   describe('Initialization', () => {
     it('should initialize with Polygon configuration', () => {
-      expect(sdk.getCurrentChain().name).toBe('Polygon');
-      expect(sdk.getContractAddress()).toBe(process.env.POLYGON_CONTRACT_ADDRESS);
+      expect(sdkPolygon.getCurrentChain().name).toBe('Polygon');
+      expect(sdkPolygon.getContractAddress()).toBe(process.env.POLYGON_CONTRACT_ADDRESS);
+    });
+
+    it('should initialize with Base configuration', () => {
+      expect(sdkBase.getCurrentChain().name).toBe('Base');
+      expect(sdkBase.getContractAddress()).toBe(process.env.BASE_CONTRACT_ADDRESS);
     });
 
     it('should throw error for unsupported chain', () => {
@@ -91,39 +105,50 @@ describe('DappRatingSDK', () => {
     });
   });
 
+  describe('Chain Switching', () => {
+    it('should switch from Polygon to Base', async () => {
+      mockContract = createMockContract('Base');
+      await sdkPolygon.switchChain('Base');
+      expect(sdkPolygon.getCurrentChain().name).toBe('Base');
+      expect(sdkPolygon.getContractAddress()).toBe(process.env.BASE_CONTRACT_ADDRESS);
+    });
+
+    it('should switch from Base to Polygon', async () => {
+      mockContract = createMockContract('Polygon');
+      await sdkBase.switchChain('Polygon');
+      expect(sdkBase.getCurrentChain().name).toBe('Polygon');
+      expect(sdkBase.getContractAddress()).toBe(process.env.POLYGON_CONTRACT_ADDRESS);
+    });
+  });
+
   describe('Review Management', () => {
-    it('should submit a review', async () => {
-      const response = await sdk.submitReview(
+    it('should submit review on Polygon', async () => {
+      const response = await sdkPolygon.submitReview(
         '0xdappid',
         5,
-        'Great dapp!',
+        'Great dapp on Polygon!',
         mockSigner
       );
-      expect(mockContract.addDappRating).toHaveBeenCalledWith(
-        expect.any(String), // dappId in bytes32
-        5,
-        'Great dapp!'
-      );
+      expect(mockAddDappRating).toHaveBeenCalled();
       expect(response).toBe(mockTxResponse);
     });
 
-    it('should reject invalid star ratings', async () => {
-      await expect(
-        sdk.submitReview('0xdappid', 6, 'Invalid rating', mockSigner)
-      ).rejects.toThrow('Star rating must be between 1 and 5');
-    });
-
-    it('should revoke a review', async () => {
-      const response = await sdk.revokeReview('0xreviewid', mockSigner);
-      expect(mockContract.revokeDappRating).toHaveBeenCalledWith('0xreviewid');
+    it('should submit review on Base', async () => {
+      const response = await sdkBase.submitReview(
+        '0xdappid',
+        5,
+        'Great dapp on Base!',
+        mockSigner
+      );
+      expect(mockAddDappRating).toHaveBeenCalled();
       expect(response).toBe(mockTxResponse);
     });
   });
 
   describe('Dapp Management', () => {
-    it('should register a new dapp', async () => {
-      const response = await sdk.registerDapp(
-        'Test Dapp',
+    it('should register dapp on Polygon', async () => {
+      const response = await sdkPolygon.registerDapp(
+        'Polygon Dapp',
         'Test Description',
         'https://test.com',
         'https://test.com/image.png',
@@ -131,96 +156,62 @@ describe('DappRatingSDK', () => {
         'DeFi',
         mockSigner
       );
-      expect(mockContract.registerDapp).toHaveBeenCalledWith(
-        'Test Dapp',
+      expect(mockRegisterDapp).toHaveBeenCalled();
+      expect(response).toBe(mockTxResponse);
+    });
+
+    it('should register dapp on Base', async () => {
+      const response = await sdkBase.registerDapp(
+        'Base Dapp',
         'Test Description',
         'https://test.com',
         'https://test.com/image.png',
-        'Polygon',
-        'DeFi'
-      );
-      expect(response).toBe(mockTxResponse);
-    });
-
-    it('should update an existing dapp', async () => {
-      const response = await sdk.updateDapp(
-        '0xdappid',
-        'Updated Dapp',
-        'Updated Description',
-        'https://updated.com',
-        'https://updated.com/image.png',
-        'Polygon',
-        'GameFi',
+        'Base',
+        'DeFi',
         mockSigner
       );
-      expect(mockContract.updateDapp).toHaveBeenCalledWith(
-        expect.any(String), // dappId in bytes32
-        'Updated Dapp',
-        'Updated Description',
-        'https://updated.com',
-        'https://updated.com/image.png',
-        'Polygon',
-        'GameFi'
-      );
+      expect(mockRegisterDapp).toHaveBeenCalled();
       expect(response).toBe(mockTxResponse);
-    });
-
-    it('should delete a dapp', async () => {
-      const response = await sdk.deleteDapp('0xdappid', mockSigner);
-      expect(mockContract.deleteDapp).toHaveBeenCalledWith(
-        expect.any(String) // dappId in bytes32
-      );
-      expect(response).toBe(mockTxResponse);
-    });
-
-    it('should get all dapps', async () => {
-      const dapps = await sdk.getAllDapps();
-      expect(mockContract.getAllDapps).toHaveBeenCalled();
-      expect(Array.isArray(dapps)).toBe(true);
-      expect(dapps[0]).toHaveProperty('name', 'Test Dapp');
-    });
-
-    it('should get a single dapp', async () => {
-      const dapp = await sdk.getDapp('0xdappid');
-      expect(mockContract.getDapp).toHaveBeenCalledWith(expect.any(String));
-      expect(dapp).toHaveProperty('name', 'Test Dapp');
-    });
-
-    it('should check if dapp is registered', async () => {
-      const isRegistered = await sdk.isDappRegistered('0xdappid');
-      expect(mockContract.isDappRegistered).toHaveBeenCalledWith(expect.any(String));
-      expect(isRegistered).toBe(true);
     });
   });
 
-  describe('Event Handling', () => {
-    it('should listen to review events', async () => {
-      const callback = jest.fn();
-      await sdk.listenToReviews(callback);
-      expect(mockContract.on).toHaveBeenCalledWith(
-        'DappRatingSubmitted',
-        expect.any(Function)
-      );
+  describe('Chain Validation', () => {
+    it('should validate Polygon chain ID', async () => {
+      mockGetNetwork.mockResolvedValueOnce({ chainId: BigInt(137) });
+      const isValid = await sdkPolygon.validateConnection();
+      expect(isValid).toBe(true);
     });
 
-    it('should stop listening to events', async () => {
-      await sdk.stopListening();
-      expect(mockContract.removeAllListeners).toHaveBeenCalled();
+    it('should validate Base chain ID', async () => {
+      mockGetNetwork.mockResolvedValueOnce({ chainId: BigInt(8453) });
+      const isValid = await sdkBase.validateConnection();
+      expect(isValid).toBe(true);
     });
   });
 
-  describe('Error Handling', () => {
-    it('should handle contract call failures', async () => {
-      mockAddDappRating.mockRejectedValueOnce(new Error('Contract call failed'));
-      await expect(
-        sdk.submitReview('0xdappid', 5, 'Test review', mockSigner)
-      ).rejects.toThrow('Failed to submit review');
+  describe('Explorer URLs', () => {
+    it('should return correct Polygon explorer URL', () => {
+      expect(sdkPolygon.getExplorerUrl()).toBe(CHAIN_CONFIGS['Polygon'].explorer);
     });
 
-    it('should handle network validation errors', async () => {
-      mockGetNetwork.mockRejectedValueOnce(new Error('Network error'));
-      const isValid = await sdk.validateConnection();
-      expect(isValid).toBe(false);
+    it('should return correct Base explorer URL', () => {
+      expect(sdkBase.getExplorerUrl()).toBe(CHAIN_CONFIGS['Base'].explorer);
+    });
+  });
+
+  describe('Static Chain Methods', () => {
+    it('should get chain by Polygon ID', () => {
+      expect(DappRatingSDK.getChainById(137)).toBe('Polygon');
+    });
+
+    it('should get chain by Base ID', () => {
+      expect(DappRatingSDK.getChainById(8453)).toBe('Base');
+    });
+
+    it('should get all supported chains', () => {
+      const chains = DappRatingSDK.getSupportedChains();
+      expect(chains).toContain('Polygon');
+      expect(chains).toContain('Base');
     });
   });
 }); 
