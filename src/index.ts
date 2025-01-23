@@ -3,7 +3,11 @@ import {
   ChainName, 
   ChainInfo, 
   SDKConfig,
-  DappReview 
+  DappReview,
+  DappRegistered,
+  GraphQLRequestConfig,
+  GraphQLResponse,
+  DappRating
 } from './types';
 import { CHAIN_CONFIGS, CONTRACT_ABI } from './constants';
 import * as queries from './graphql/queries';
@@ -16,28 +20,55 @@ export class DappRatingSDK {
 
   constructor(
     provider: ethers.Provider,
-    chainName: ChainName
+    chainName: ChainName,
+    config?: SDKConfig
   ) {
     this.provider = provider;
     this.chainName = chainName;
-    
-    // Get chain configuration from constants
+
+    // Override contract addresses if provided
+    if (config?.contractAddresses) {
+      Object.keys(config.contractAddresses).forEach((chain) => {
+        const chainKey = chain as ChainName;
+        if (CHAIN_CONFIGS[chainKey] && config.contractAddresses?.[chainKey]) {
+          CHAIN_CONFIGS[chainKey].contractAddress = config.contractAddresses[chainKey];
+        }
+      });
+    }
+
+    // Override subgraph URLs if provided
+    if (config?.subgraphUrls) {
+      Object.keys(config.subgraphUrls).forEach((chain) => {
+        const chainKey = chain as ChainName;
+        if (CHAIN_CONFIGS[chainKey] && config.subgraphUrls?.[chainKey]) {
+          CHAIN_CONFIGS[chainKey].graphqlUrl = config.subgraphUrls[chainKey];
+        }
+      });
+    }
+
+    // Apply Alchemy key if provided
+    if (config?.alchemyKey) {
+      Object.keys(CHAIN_CONFIGS).forEach((chain) => {
+        const chainKey = chain as ChainName;
+        CHAIN_CONFIGS[chainKey].graphqlUrl = CHAIN_CONFIGS[chainKey].graphqlUrl.replace(
+          '[YOUR_KEY]',
+          config.alchemyKey!
+        );
+      });
+    }
+
+    // Get chain configuration
     this.chainConfig = CHAIN_CONFIGS[chainName];
     if (!this.chainConfig) {
       throw new Error(`Unsupported chain: ${chainName}`);
     }
 
-    // Initialize contract with the chain's contract address
+    // Initialize contract
     this.contract = new Contract(
       this.chainConfig.contractAddress,
       CONTRACT_ABI,
       this.provider
     );
-
-    // Verify contract initialization
-    if (!this.contract.interface.getFunction('addDappRating')) {
-      throw new Error('Contract initialization failed: addDappRating function not found');
-    }
   }
 
   private getGraphqlUrl(): string {
@@ -45,23 +76,26 @@ export class DappRatingSDK {
       ?? this.chainConfig.graphqlUrl;
   }
 
-  private async queryGraph(query: string, variables: any = {}) {
-    const response = await fetch(this.getGraphqlUrl(), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query, variables })
-    });
+  private async fetchGraphQL<T>(config: GraphQLRequestConfig): Promise<GraphQLResponse<T> | null> {
+    try {
+      const response = await fetch(config.endpoint, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ query: config.query }),
+      });
 
-    if (!response.ok) {
-      throw new Error(`GraphQL Error: ${response.statusText}`);
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const responseData = (await response.json()) as GraphQLResponse<T>;
+      return responseData;
+    } catch (error) {
+      console.log(`GraphQL Error: ${error}`);
     }
-
-    const json = await response.json();
-    if (json.errors) {
-      throw new Error(`GraphQL Error: ${json.errors[0].message}`);
-    }
-
-    return json.data;
+    return null;
   }
 
   // Public methods for reviews
@@ -107,14 +141,48 @@ export class DappRatingSDK {
     return signedContract.revokeDappRating(ratingUid);
   }
 
-  public async getProjectReviews(projectId: string): Promise<DappReview[]> {
-    const data = await this.queryGraph(queries.GET_PROJECT_REVIEWS, { projectId });
-    return data.reviewSubmitteds;
+  public async getProjectReviews(projectId: string): Promise<DappRating[]> {
+    try {
+      const query = `{ dappRatingSubmitteds(where: { dappId: "${projectId}" }) {
+        id
+        attestationId
+        dappId
+        starRating
+        reviewText
+      }}`;
+      
+      const response = await this.fetchGraphQL<{ dappRatingSubmitteds: DappRating[] }>({
+        endpoint: this.getGraphqlUrl(),
+        query
+      });
+      return response?.data.dappRatingSubmitteds || [];
+    } catch (error) {
+      console.log(`GraphQL Error: ${error}`);
+      return [];
+    }
   }
 
-  public async getUserReviews(userAddress: string): Promise<DappReview[]> {
-    const data = await this.queryGraph(queries.GET_USER_REVIEWS, { userAddress });
-    return data.reviewSubmitteds;
+  public async getUserReviews(userAddress: string): Promise<DappRating[]> {
+    try {
+      const query = `{ 
+        dappRatingSubmitteds(where: { rater: "${userAddress.toLowerCase()}" }) {
+          id
+          attestationId
+          dappId
+          starRating
+          reviewText
+        }
+      }`;
+
+      const response = await this.fetchGraphQL<{ dappRatingSubmitteds: DappRating[] }>({
+        endpoint: this.getGraphqlUrl(),
+        query
+      });
+      return response?.data.dappRatingSubmitteds || [];
+    } catch (error) {
+      console.log(`GraphQL Error: ${error}`);
+      return [];
+    }
   }
 
   public async getProjectStats(projectId: string) {
@@ -226,14 +294,14 @@ export class DappRatingSDK {
         reviewText: string,
         event: ethers.EventLog
       ) => {
-        callback({
+        return callback({
+          id: attestationId,
           attestationId,
           dappId: typeof dappId === 'string' && dappId.startsWith('0x')
             ? ethers.toUtf8String(dappId)
             : dappId,
           starRating: Number(starRating),
-          reviewText,
-          timestamp: event.blockNumber ? Number(event.blockNumber) : Math.floor(Date.now() / 1000)
+          reviewText
         });
       }
     );
@@ -302,8 +370,18 @@ export class DappRatingSDK {
   }
 
   // New methods for fetching Dapp information
-  public async getAllDapps() {
-    return this.contract.getAllDapps();
+  public async getAllDapps(): Promise<DappRegistered[]> {
+    try {
+      const query = `{ dappRegistereds { dappId, description, name, url, platform, category } }`;
+      const response = await this.fetchGraphQL<{ dappRegistereds: DappRegistered[] }>({
+        endpoint: this.getGraphqlUrl(),
+        query
+      });
+      return response?.data.dappRegistereds || [];
+    } catch (error) {
+      console.log(`GraphQL Error: ${error}`);
+      return [];
+    }
   }
 
   public async getDapp(dappId: string) {

@@ -9,14 +9,46 @@ export interface ChainInfo {
 }
 
 export interface DappReview {
+  id: string;
   attestationId: string;
   dappId: string;
   starRating: number;
   reviewText: string;
-  timestamp: number;
+}
+
+export interface DappRegistered {
+  dappId: string;
+  description: string;
+  name: string;
+  url: string;
+  platform: string;
+  category: string;
 }
 
 export interface SDKConfig {
-  contractAddress: string;
-  customGraphqlUrls?: Partial<Record<ChainName, string>>;
+  alchemyKey?: string;
+  contractAddresses?: {
+    [key in ChainName]?: string;
+  };
+  subgraphUrls?: {
+    [key in ChainName]?: string;
+  };
+}
+
+export interface GraphQLRequestConfig {
+  endpoint: string;
+  query: string;
+}
+
+export interface GraphQLResponse<T> {
+  data: T;
+  errors?: Array<{ message: string }>;
+}
+
+export interface DappRating {
+  id: string;
+  attestationId: string;
+  dappId: string;
+  starRating: number;
+  reviewText: string;
 }

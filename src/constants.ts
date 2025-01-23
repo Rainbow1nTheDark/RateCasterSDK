@@ -1,36 +1,39 @@
-import dotenv from 'dotenv';
 import { ChainInfo, ChainName } from "./types";
 
-// Load environment variables
-dotenv.config();
+// Default contract addresses for public networks
+const DEFAULT_ADDRESSES = {
+  POLYGON: '0xD6E93AC22B754427077290d660442564BB7E6760',
+  BASE: '0x0683A7321f397cDf50a4554914C453EE3C98A55B',
+  BASE_GOERLI: '0x0683A7321f397cDf50a4554914C453EE3C98A55B'
+};
 
-if (!process.env.ALCHEMY_SUBGRAPH_KEY) {
-  throw new Error('ALCHEMY_SUBGRAPH_KEY is not defined in environment variables');
-}
-
-const ALCHEMY_SUBGRAPH_KEY = process.env.ALCHEMY_SUBGRAPH_KEY;
-const SUBGRAPH_BASE_URL = 'https://subgraph.satsuma-prod.com';
+// Default subgraph URLs (without sensitive keys)
+const DEFAULT_SUBGRAPH_URLS = {
+  POLYGON: 'https://subgraph.satsuma-prod.com/8913ac6ee1bc/alexanders-team--782474/example-subgraph-name/api',
+  BASE: 'example',
+  BASE_GOERLI: 'example'
+};
 
 export const CHAIN_CONFIGS: Record<ChainName, ChainInfo> = {
   'Polygon': {
     chainId: 137,
     name: 'Polygon',
-    graphqlUrl: `${SUBGRAPH_BASE_URL}/${ALCHEMY_SUBGRAPH_KEY}/alexanders-team--782474/ratecast-polygon/api`,
-    contractAddress: process.env.POLYGON_CONTRACT_ADDRESS || '0x...',
+    graphqlUrl: DEFAULT_SUBGRAPH_URLS.POLYGON,
+    contractAddress: DEFAULT_ADDRESSES.POLYGON,
     explorer: 'https://polygonscan.com'
   },
   'Base': {
     chainId: 8453,
     name: 'Base',
-    graphqlUrl: `${SUBGRAPH_BASE_URL}/${ALCHEMY_SUBGRAPH_KEY}/alexanders-team--782474/ratecast-base/api`,
-    contractAddress: process.env.BASE_CONTRACT_ADDRESS || '0x...',
+    graphqlUrl: DEFAULT_SUBGRAPH_URLS.BASE,
+    contractAddress: DEFAULT_ADDRESSES.BASE,
     explorer: 'https://basescan.org'
   },
   'Base Goerli': {
     chainId: 84531,
     name: 'Base Goerli',
-    graphqlUrl: `${SUBGRAPH_BASE_URL}/${ALCHEMY_SUBGRAPH_KEY}/alexanders-team--782474/ratecast-base-goerli/api`,
-    contractAddress: process.env.BASE_GOERLI_CONTRACT_ADDRESS || '0x...',
+    graphqlUrl: DEFAULT_SUBGRAPH_URLS.BASE_GOERLI,
+    contractAddress: DEFAULT_ADDRESSES.BASE_GOERLI,
     explorer: 'https://goerli.basescan.org'
   }
 };

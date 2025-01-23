@@ -1,23 +1,36 @@
 export const GET_PROJECT_REVIEWS = `
   query GetProjectReviews($projectId: String!) {
-    reviewSubmitteds(where: { projectId: $projectId }) {
-      projectId
-      raterAddress
+    dappRatingSubmitteds(where: { dappId: $projectId }) {
+      id
+      attestationId
+      dappId
       starRating
       reviewText
-      timestamp
     }
   }
 `;
 
 export const GET_USER_REVIEWS = `
   query GetUserReviews($userAddress: String!) {
-    reviewSubmitteds(where: { raterAddress: $userAddress }) {
-      projectId
-      raterAddress
+    dappRatingSubmitteds(where: { rater: $userAddress }) {
+      id
+      attestationId
+      dappId
       starRating
       reviewText
-      timestamp
+    }
+  }
+`;
+
+export const GET_ALL_DAPPS = `
+  query GetAllDapps {
+    dappRegistereds {
+      dappId
+      description
+      name
+      url
+      platform
+      category
     }
   }
 `;

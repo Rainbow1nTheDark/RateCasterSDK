@@ -1,3 +1,5 @@
 node_modules/
 .env
 dist/
+test-website/
+test-website/node_modules
