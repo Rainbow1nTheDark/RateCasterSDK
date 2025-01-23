@@ -1,5 +1,40 @@
-node_modules/
+# Dependencies
+node_modules
+**/node_modules
+package-lock.json
+yarn.lock
+
+# Build outputs
+dist
+build
+.next
+out
+*.tsbuildinfo
+
+# Environment files
 .env
-dist/
-test-website/
-test-website/node_modules
+.env.*
+**/.env
+**/.env.*
+
+# Test website
+test-website
+
+# IDE and OS files
+.DS_Store
+.idea
+.vscode
+*.swp
+*.swo
+.history
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Cache directories
+.cache
+.npm
+.eslintcache

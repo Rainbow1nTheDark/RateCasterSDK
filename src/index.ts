@@ -143,19 +143,15 @@ export class DappRatingSDK {
 
   public async getProjectReviews(projectId: string): Promise<DappRating[]> {
     try {
-      const query = `{ dappRatingSubmitteds(where: { dappId: "${projectId}" }) {
-        id
-        attestationId
-        dappId
-        starRating
-        reviewText
-      }}`;
-      
+      const query = `{ dappRatingSubmitteds {id, attestationId, dappId, starRating, reviewText}}`;
       const response = await this.fetchGraphQL<{ dappRatingSubmitteds: DappRating[] }>({
         endpoint: this.getGraphqlUrl(),
         query
       });
-      return response?.data.dappRatingSubmitteds || [];
+      
+      // Filter reviews for this project
+      const allReviews = response?.data.dappRatingSubmitteds || [];
+      return allReviews.filter(review => review.dappId === projectId);
     } catch (error) {
       console.log(`GraphQL Error: ${error}`);
       return [];
@@ -167,6 +163,7 @@ export class DappRatingSDK {
       const query = `{ 
         dappRatingSubmitteds(where: { rater: "${userAddress.toLowerCase()}" }) {
           id
+          rater
           attestationId
           dappId
           starRating
@@ -372,7 +369,7 @@ export class DappRatingSDK {
   // New methods for fetching Dapp information
   public async getAllDapps(): Promise<DappRegistered[]> {
     try {
-      const query = `{ dappRegistereds { dappId, description, name, url, platform, category } }`;
+      const query = `{ dappRegistereds { dappId, description, name, url } }`;
       const response = await this.fetchGraphQL<{ dappRegistereds: DappRegistered[] }>({
         endpoint: this.getGraphqlUrl(),
         query
@@ -384,11 +381,18 @@ export class DappRatingSDK {
     }
   }
 
-  public async getDapp(dappId: string) {
-    const dappIdBytes32 = ethers.isHexString(dappId) && dappId.length === 66
-      ? dappId
-      : ethers.keccak256(ethers.toUtf8Bytes(dappId));
-    return this.contract.getDapp(dappIdBytes32);
+  public async getDapp(dappId: string): Promise<DappRegistered | null> {
+    try {
+      const query = `{ dappRegistered(id:"${dappId}") { id, dappId, description, name, url } }`;
+      const response = await this.fetchGraphQL<{ dappRegistered: DappRegistered }>({
+        endpoint: this.getGraphqlUrl(),
+        query
+      });
+      return response?.data.dappRegistered || null;
+    } catch (error) {
+      console.log(`GraphQL Error: ${error}`);
+      return null;
+    }
   }
 
   public async isDappRegistered(dappId: string): Promise<boolean> {
@@ -396,6 +400,20 @@ export class DappRatingSDK {
       ? dappId
       : ethers.keccak256(ethers.toUtf8Bytes(dappId));
     return this.contract.isDappRegistered(dappIdBytes32);
+  }
+
+  public async getAllReviews(): Promise<DappRating[]> {
+    try {
+      const query = `{ dappRatingSubmitteds {id, attestationId, dappId, starRating, reviewText}}`;
+      const response = await this.fetchGraphQL<{ dappRatingSubmitteds: DappRating[] }>({
+        endpoint: this.getGraphqlUrl(),
+        query
+      });
+      return response?.data.dappRatingSubmitteds || [];
+    } catch (error) {
+      console.log(`GraphQL Error: ${error}`);
+      return [];
+    }
   }
 }
 

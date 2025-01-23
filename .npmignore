@@ -1,8 +1,0 @@
-src/
-tests/
-jest.config.ts
-tsconfig.json
-.env*
-.gitignore
-coverage/
-node_modules/ 
