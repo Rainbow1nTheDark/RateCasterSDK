@@ -23,6 +23,8 @@ export interface DappRegistered {
   url: string;
   platform: string;
   category: string;
+  averageRating?: number;
+  totalReviews?: number;
 }
 
 export interface SDKConfig {

@@ -367,28 +367,67 @@ export class DappRatingSDK {
   }
 
   // New methods for fetching Dapp information
-  public async getAllDapps(): Promise<DappRegistered[]> {
+  public async getAllDapps(includeRatings: boolean = true): Promise<DappRegistered[]> {
     try {
-      const query = `{ dappRegistereds { dappId, description, name, url } }`;
+      const query = `{ dappRegistereds { dappId, description, name, url, platform, category } }`;
       const response = await this.fetchGraphQL<{ dappRegistereds: DappRegistered[] }>({
         endpoint: this.getGraphqlUrl(),
         query
       });
-      return response?.data.dappRegistereds || [];
+
+      if (!includeRatings) {
+        return response?.data.dappRegistereds || [];
+      }
+
+      // Fetch all ratings at once for better performance
+      const allRatings = await this.getAllReviews();
+      
+      // Calculate ratings for each dapp
+      const dappsWithRatings = (response?.data.dappRegistereds || []).map(dapp => {
+        const dappRatings = allRatings.filter(r => r.dappId === dapp.dappId);
+        const totalReviews = dappRatings.length;
+        const averageRating = totalReviews > 0
+          ? dappRatings.reduce((sum, r) => sum + Number(r.starRating), 0) / totalReviews
+          : 0;
+
+        return {
+          ...dapp,
+          averageRating,
+          totalReviews
+        };
+      });
+
+      return dappsWithRatings;
     } catch (error) {
       console.log(`GraphQL Error: ${error}`);
       return [];
     }
   }
 
-  public async getDapp(dappId: string): Promise<DappRegistered | null> {
+  public async getDapp(dappId: string, includeRatings: boolean = true): Promise<DappRegistered | null> {
     try {
-      const query = `{ dappRegistered(id:"${dappId}") { id, dappId, description, name, url } }`;
+      const query = `{ dappRegistered(id:"${dappId}") { id, dappId, description, name, url, platform, category } }`;
       const response = await this.fetchGraphQL<{ dappRegistered: DappRegistered }>({
         endpoint: this.getGraphqlUrl(),
         query
       });
-      return response?.data.dappRegistered || null;
+
+      if (!response?.data.dappRegistered || !includeRatings) {
+        return response?.data.dappRegistered || null;
+      }
+
+      // Fetch ratings for this specific dapp
+      const ratings = await this.getProjectReviews(dappId);
+      const totalReviews = ratings.length;
+      const averageRating = totalReviews > 0
+        ? ratings.reduce((sum, r) => sum + Number(r.starRating), 0) / totalReviews
+        : 0;
+
+      return {
+        ...response.data.dappRegistered,
+        averageRating,
+        totalReviews
+      };
     } catch (error) {
       console.log(`GraphQL Error: ${error}`);
       return null;
