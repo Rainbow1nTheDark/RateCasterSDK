@@ -1,6 +1,5 @@
 import { ethers, Contract, ContractTransaction } from 'ethers';
 import { 
-  ChainName, 
   ChainInfo, 
   SDKConfig,
   DappReview,
@@ -10,57 +9,42 @@ import {
   DappRating
 } from './types';
 import { CHAIN_CONFIGS, CONTRACT_ABI } from './constants';
-import * as queries from './graphql/queries';
 
-export class DappRatingSDK {
-  private provider: ethers.Provider;
-  private chainName: ChainName;
-  private contract: Contract;
-  private chainConfig: ChainInfo;
+export class RateCaster {
+  private provider: ethers.JsonRpcProvider;
+  private contract!: Contract;
+  private chainConfig!: ChainInfo;
+  private initialized: Promise<void>;
 
   constructor(
-    provider: ethers.Provider,
-    chainName: ChainName,
-    config?: SDKConfig
+    provider: ethers.JsonRpcProvider,
   ) {
+    if (!provider) {
+      throw new Error('Provider is not initialized');
+    }
     this.provider = provider;
-    this.chainName = chainName;
 
-    // Override contract addresses if provided
-    if (config?.contractAddresses) {
-      Object.keys(config.contractAddresses).forEach((chain) => {
-        const chainKey = chain as ChainName;
-        if (CHAIN_CONFIGS[chainKey] && config.contractAddresses?.[chainKey]) {
-          CHAIN_CONFIGS[chainKey].contractAddress = config.contractAddresses[chainKey];
-        }
-      });
+    // Initialize asynchronously
+    this.initialized = this.initialize();
+  }
+
+  private async initialize(): Promise<void> {
+    const getNetwork = async () => {
+      const network = await this.provider.getNetwork();
+      if (!network || typeof network.chainId === 'undefined') {
+        throw new Error('Failed to get network from provider');
+      }
+      return network;
     }
 
-    // Override subgraph URLs if provided
-    if (config?.subgraphUrls) {
-      Object.keys(config.subgraphUrls).forEach((chain) => {
-        const chainKey = chain as ChainName;
-        if (CHAIN_CONFIGS[chainKey] && config.subgraphUrls?.[chainKey]) {
-          CHAIN_CONFIGS[chainKey].graphqlUrl = config.subgraphUrls[chainKey];
-        }
-      });
-    }
-
-    // Apply Alchemy key if provided
-    if (config?.alchemyKey) {
-      Object.keys(CHAIN_CONFIGS).forEach((chain) => {
-        const chainKey = chain as ChainName;
-        CHAIN_CONFIGS[chainKey].graphqlUrl = CHAIN_CONFIGS[chainKey].graphqlUrl.replace(
-          '[YOUR_KEY]',
-          config.alchemyKey!
-        );
-      });
-    }
+    const network = await getNetwork();
+    const chainId = Number(network.chainId);
+    console.debug(`Detected chain ID: ${chainId}`);
 
     // Get chain configuration
-    this.chainConfig = CHAIN_CONFIGS[chainName];
+    this.chainConfig = CHAIN_CONFIGS[chainId];
     if (!this.chainConfig) {
-      throw new Error(`Unsupported chain: ${chainName}`);
+      throw new Error(`Configuration not found for chain: ${chainId}`);
     }
 
     // Initialize contract
@@ -69,6 +53,11 @@ export class DappRatingSDK {
       CONTRACT_ABI,
       this.provider
     );
+  }
+
+  // Add this to ensure all public methods wait for initialization
+  private async ensureInitialized(): Promise<void> {
+    await this.initialized;
   }
 
   private getGraphqlUrl(): string {
@@ -104,7 +93,8 @@ export class DappRatingSDK {
     starRating: number,
     reviewText: string,
     signer: ethers.Signer
-  ): Promise<ContractTransaction> {
+  ): Promise<ethers.ContractTransactionResponse> {
+    await this.ensureInitialized();
     if (starRating < 1 || starRating > 5) {
       throw new Error('Star rating must be between 1 and 5');
     }
@@ -119,13 +109,11 @@ export class DappRatingSDK {
         : ethers.keccak256(ethers.toUtf8Bytes(dappId));
 
       // Call the contract method
-      const tx = await signedContract.addDappRating(
+      return await signedContract.addDappRating(
         dappIdBytes32,
         starRating,
         reviewText
       );
-
-      return tx;
     } catch (error: any) {
       console.error('Contract address:', this.contract.target);
       console.error('Error details:', error);
@@ -137,11 +125,13 @@ export class DappRatingSDK {
     ratingUid: string,
     signer: ethers.Signer
   ): Promise<ContractTransaction> {
+    await this.ensureInitialized();
     const signedContract = this.contract.connect(signer) as Contract;
     return signedContract.revokeDappRating(ratingUid);
   }
 
   public async getProjectReviews(projectId: string): Promise<DappRating[]> {
+    await this.ensureInitialized();
     try {
       const query = `{ dappRatingSubmitteds {id, attestationId, dappId, starRating, reviewText}}`;
       const response = await this.fetchGraphQL<{ dappRatingSubmitteds: DappRating[] }>({
@@ -159,6 +149,7 @@ export class DappRatingSDK {
   }
 
   public async getUserReviews(userAddress: string): Promise<DappRating[]> {
+    await this.ensureInitialized();
     try {
       const query = `{ 
         dappRatingSubmitteds(where: { rater: "${userAddress.toLowerCase()}" }) {
@@ -183,6 +174,7 @@ export class DappRatingSDK {
   }
 
   public async getProjectStats(projectId: string) {
+    await this.ensureInitialized();
     const reviews = await this.getProjectReviews(projectId);
     const totalReviews = reviews.length;
     const averageRating = reviews.reduce((acc, review) => acc + review.starRating, 0) / totalReviews;
@@ -202,6 +194,7 @@ export class DappRatingSDK {
 
   // Contract state reading methods
   public async hasUserRatedProject(userAddress: string, projectId: string): Promise<boolean> {
+    await this.ensureInitialized();
     const projectIdBytes32 = ethers.isHexString(projectId) && projectId.length === 66
       ? projectId
       : ethers.keccak256(ethers.toUtf8Bytes(projectId));
@@ -209,11 +202,13 @@ export class DappRatingSDK {
   }
 
   public async getUserRatingCount(userAddress: string): Promise<number> {
+    await this.ensureInitialized();
     const count = await this.contract.raterToNumberOfRates(userAddress);
     return Number(count);
   }
 
   public async getProjectRatingCount(projectId: string): Promise<number> {
+    await this.ensureInitialized();
     const projectIdBytes32 = ethers.isHexString(projectId) && projectId.length === 66
       ? projectId
       : ethers.keccak256(ethers.toUtf8Bytes(projectId));
@@ -221,48 +216,14 @@ export class DappRatingSDK {
     return Number(count);
   }
 
-  // Chain management methods
-  public async switchChain(chainName: ChainName) {
-    const newConfig = CHAIN_CONFIGS[chainName];
-    if (!newConfig) {
-      throw new Error(`Unsupported chain: ${chainName}`);
-    }
-    
-    if (this.provider instanceof ethers.BrowserProvider) {
-      await this.provider.send('wallet_switchEthereumChain', [
-        { chainId: `0x${newConfig.chainId.toString(16)}` }
-      ]);
-    }
-
-    this.chainName = chainName;
-    this.chainConfig = newConfig;
-    
-    // Reinitialize contract with new chain's address
-    this.contract = new Contract(
-      this.chainConfig.contractAddress,
-      CONTRACT_ABI,
-      this.provider
-    );
-  }
 
   public getCurrentChain(): ChainInfo {
     return this.chainConfig;
   }
 
-  // Static methods for chain information
-  public static getSupportedChains(): ChainName[] {
-    return Object.keys(CHAIN_CONFIGS) as ChainName[];
-  }
-
-  public static getChainById(chainId: number): ChainName | undefined {
-    const entry = Object.entries(CHAIN_CONFIGS).find(
-      ([_, config]) => config.chainId === chainId
-    );
-    return entry ? (entry[0] as ChainName) : undefined;
-  }
-
   // Utility methods
   public async validateConnection(): Promise<boolean> {
+    await this.ensureInitialized();
     try {
       const network = await this.provider.getNetwork();
       const expectedChainId = this.chainConfig.chainId;
@@ -283,6 +244,7 @@ export class DappRatingSDK {
   public async listenToReviews(
     callback: (review: DappReview) => void
   ): Promise<Contract> {
+    await this.ensureInitialized();
     this.contract.on("DappRatingSubmitted", 
       (
         attestationId: string,
@@ -306,6 +268,7 @@ export class DappRatingSDK {
   }
 
   public async stopListening(): Promise<void> {
+    await this.ensureInitialized();
     this.contract.removeAllListeners();
   }
 
@@ -318,7 +281,8 @@ export class DappRatingSDK {
     platform: string,
     category: string,
     signer: ethers.Signer
-  ): Promise<ContractTransaction> {
+  ): Promise<ethers.ContractTransactionResponse> {
+    await this.ensureInitialized();
     const signedContract = this.contract.connect(signer) as Contract;
     return signedContract.registerDapp(
       name,
@@ -340,6 +304,7 @@ export class DappRatingSDK {
     category: string,
     signer: ethers.Signer
   ): Promise<ContractTransaction> {
+    await this.ensureInitialized();
     const signedContract = this.contract.connect(signer) as Contract;
     const dappIdBytes32 = ethers.isHexString(dappId) && dappId.length === 66
       ? dappId
@@ -358,7 +323,8 @@ export class DappRatingSDK {
   public async deleteDapp(
     dappId: string,
     signer: ethers.Signer
-  ): Promise<ContractTransaction> {
+  ): Promise<ethers.ContractTransactionResponse> {
+    await this.ensureInitialized();
     const signedContract = this.contract.connect(signer) as Contract;
     const dappIdBytes32 = ethers.isHexString(dappId) && dappId.length === 66
       ? dappId
@@ -368,6 +334,7 @@ export class DappRatingSDK {
 
   // New methods for fetching Dapp information
   public async getAllDapps(includeRatings: boolean = true): Promise<DappRegistered[]> {
+    await this.ensureInitialized();
     try {
       const query = `{ dappRegistereds { dappId, description, name, url, platform, category } }`;
       const response = await this.fetchGraphQL<{ dappRegistereds: DappRegistered[] }>({
@@ -405,6 +372,7 @@ export class DappRatingSDK {
   }
 
   public async getDapp(dappId: string, includeRatings: boolean = true): Promise<DappRegistered | null> {
+    await this.ensureInitialized();
     try {
       const query = `{ dappRegistered(id:"${dappId}") { id, dappId, description, name, url, platform, category } }`;
       const response = await this.fetchGraphQL<{ dappRegistered: DappRegistered }>({
@@ -435,6 +403,7 @@ export class DappRatingSDK {
   }
 
   public async isDappRegistered(dappId: string): Promise<boolean> {
+    await this.ensureInitialized();
     const dappIdBytes32 = ethers.isHexString(dappId) && dappId.length === 66
       ? dappId
       : ethers.keccak256(ethers.toUtf8Bytes(dappId));
@@ -442,6 +411,7 @@ export class DappRatingSDK {
   }
 
   public async getAllReviews(): Promise<DappRating[]> {
+    await this.ensureInitialized();
     try {
       const query = `{ dappRatingSubmitteds {id, attestationId, dappId, starRating, reviewText}}`;
       const response = await this.fetchGraphQL<{ dappRatingSubmitteds: DappRating[] }>({

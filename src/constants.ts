@@ -1,40 +1,23 @@
-import { ChainInfo, ChainName } from "./types";
+import { ChainInfo } from "./types";
 
 // Default contract addresses for public networks
 const DEFAULT_ADDRESSES = {
-  POLYGON: '0xD6E93AC22B754427077290d660442564BB7E6760',
-  BASE: '0x0683A7321f397cDf50a4554914C453EE3C98A55B',
-  BASE_GOERLI: '0x0683A7321f397cDf50a4554914C453EE3C98A55B'
+  POLYGON: '0xD6E93AC22B754427077290d660442564BB7E6760'
 };
 
 // Default subgraph URLs (without sensitive keys)
 const DEFAULT_SUBGRAPH_URLS = {
-  POLYGON: 'https://subgraph.satsuma-prod.com/8913ac6ee1bc/alexanders-team--782474/example-subgraph-name/api',
-  BASE: 'example',
-  BASE_GOERLI: 'example'
+  POLYGON: 'https://subgraph.satsuma-prod.com/8913ac6ee1bc/alexanders-team--782474/example-subgraph-name/api'
 };
 
-export const CHAIN_CONFIGS: Record<ChainName, ChainInfo> = {
-  'Polygon': {
+// Chain configurations
+export const CHAIN_CONFIGS: Record<number, ChainInfo> = {
+  137: {
     chainId: 137,
     name: 'Polygon',
     graphqlUrl: DEFAULT_SUBGRAPH_URLS.POLYGON,
     contractAddress: DEFAULT_ADDRESSES.POLYGON,
     explorer: 'https://polygonscan.com'
-  },
-  'Base': {
-    chainId: 8453,
-    name: 'Base',
-    graphqlUrl: DEFAULT_SUBGRAPH_URLS.BASE,
-    contractAddress: DEFAULT_ADDRESSES.BASE,
-    explorer: 'https://basescan.org'
-  },
-  'Base Goerli': {
-    chainId: 84531,
-    name: 'Base Goerli',
-    graphqlUrl: DEFAULT_SUBGRAPH_URLS.BASE_GOERLI,
-    contractAddress: DEFAULT_ADDRESSES.BASE_GOERLI,
-    explorer: 'https://goerli.basescan.org'
   }
 };
   

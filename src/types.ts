@@ -1,8 +1,7 @@
-export type ChainName = 'Polygon' | 'Base' | 'Base Goerli';
 
 export interface ChainInfo {
   chainId: number;
-  name: ChainName;
+  name: String;
   graphqlUrl: string;
   contractAddress: string;
   explorer: string;
@@ -29,12 +28,8 @@ export interface DappRegistered {
 
 export interface SDKConfig {
   alchemyKey?: string;
-  contractAddresses?: {
-    [key in ChainName]?: string;
-  };
-  subgraphUrls?: {
-    [key in ChainName]?: string;
-  };
+  contractAddress?: string;
+  subgraphUrl?: string;
 }
 
 export interface GraphQLRequestConfig {
