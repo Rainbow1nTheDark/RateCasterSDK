@@ -100,15 +100,12 @@ export class RateCaster {
     }
 
     try {
-      // Connect the contract with the signer
       const signedContract = this.contract.connect(signer) as Contract;
-
-      // Convert dappId to bytes32
       const dappIdBytes32 = ethers.isHexString(dappId) && dappId.length === 66
         ? dappId
         : ethers.keccak256(ethers.toUtf8Bytes(dappId));
 
-      // Call the contract method
+      // Send transaction with default gas settings
       return await signedContract.addDappRating(
         dappIdBytes32,
         starRating,
@@ -283,15 +280,22 @@ export class RateCaster {
     signer: ethers.Signer
   ): Promise<ethers.ContractTransactionResponse> {
     await this.ensureInitialized();
-    const signedContract = this.contract.connect(signer) as Contract;
-    return signedContract.registerDapp(
-      name,
-      description,
-      url,
-      imageURL,
-      platform,
-      category
-    );
+    try {
+      const signedContract = this.contract.connect(signer) as Contract;
+
+      // Send transaction with default gas settings
+      return await signedContract.registerDapp(
+        name,
+        description,
+        url,
+        imageURL,
+        platform,
+        category
+      );
+    } catch (error: any) {
+      console.error('Error registering dapp:', error);
+      throw new Error(`Failed to register dapp: ${error.message || error}`);
+    }
   }
 
   public async updateDapp(
@@ -325,11 +329,18 @@ export class RateCaster {
     signer: ethers.Signer
   ): Promise<ethers.ContractTransactionResponse> {
     await this.ensureInitialized();
-    const signedContract = this.contract.connect(signer) as Contract;
-    const dappIdBytes32 = ethers.isHexString(dappId) && dappId.length === 66
-      ? dappId
-      : ethers.keccak256(ethers.toUtf8Bytes(dappId));
-    return signedContract.deleteDapp(dappIdBytes32);
+    try {
+      const signedContract = this.contract.connect(signer) as Contract;
+      const dappIdBytes32 = ethers.isHexString(dappId) && dappId.length === 66
+        ? dappId
+        : ethers.keccak256(ethers.toUtf8Bytes(dappId));
+
+      // Send transaction with default gas settings
+      return await signedContract.deleteDapp(dappIdBytes32);
+    } catch (error: any) {
+      console.error('Error deleting dapp:', error);
+      throw new Error(`Failed to delete dapp: ${error.message || error}`);
+    }
   }
 
   // New methods for fetching Dapp information

@@ -6,16 +6,16 @@ dotenv.config();
 
 // Test data
 const TEST_DAPP = {
-  name: 'Test Dapp',
-  description: 'Integration Test Dapp',
-  url: 'https://test.com',
-  imageUrl: 'https://test.com/image.png',
+  name: 'Planetix',
+  description: 'Gaming platform for the next generation',
+  url: 'https://planetix3.com/',
+  imageUrl: 'https://planetix.com/static/media/planetix-logo.png',
   platform: 'Polygon',
-  category: 'Testing'
+  category: 'Gaming'
 };
 
 const TEST_REVIEW = {
-  dappId: 'test-dapp',
+  dappId: ethers.keccak256(ethers.toUtf8Bytes(TEST_DAPP.url)),
   rating: 5,
   comment: 'Great integration test dapp!'
 };
@@ -29,15 +29,21 @@ const runIntegrationTests = process.env.RUN_INTEGRATION_TESTS === 'true';
   let provider: ethers.JsonRpcProvider;
   let signer: ethers.Signer;
 
+  // Set timeout for all tests in this suite
+  jest.setTimeout(1000000);
+
   beforeAll(async () => {
-    // Only run if integration tests are enabled
     if (!process.env.RUN_INTEGRATION_TESTS) {
       console.log('Skipping integration tests');
       return;
     }
 
+    if (!process.env.PRIVATE_KEY) {
+      throw new Error('PRIVATE_KEY environment variable is required for integration tests');
+    }
+
     provider = new ethers.JsonRpcProvider(process.env.RPC_URL);
-    signer = await provider.getSigner();
+    signer = new ethers.Wallet(process.env.PRIVATE_KEY, provider);
     sdk = new RateCaster(provider);
   });
 
@@ -57,14 +63,9 @@ const runIntegrationTests = process.env.RUN_INTEGRATION_TESTS === 'true';
       
       const receipt = await tx.wait();
       expect(receipt?.status).toBe(1);
-    });
+    }, 1000000);
 
     it('should submit a review', async () => {
-      // Skip if integration tests are disabled
-      if (!process.env.RUN_INTEGRATION_TESTS) {
-        return;
-      }
-
       const tx = await sdk.submitReview(
         TEST_REVIEW.dappId,
         TEST_REVIEW.rating,
@@ -72,27 +73,25 @@ const runIntegrationTests = process.env.RUN_INTEGRATION_TESTS === 'true';
         signer
       );
 
-      // Wait for transaction to be mined
       await provider.waitForTransaction(tx.hash);
       
-      // Verify the review was submitted
       const reviews = await sdk.getProjectReviews(TEST_REVIEW.dappId);
       expect(reviews.length).toBeGreaterThan(0);
-    });
+    }, 1000000);
 
     it('should fetch the dapp with its rating', async () => {
       const dapp = await sdk.getDapp(TEST_REVIEW.dappId);
       expect(dapp).toBeTruthy();
       expect(dapp?.averageRating).toBe(TEST_REVIEW.rating);
       expect(dapp?.totalReviews).toBe(1);
-    });
+    }, 1000000);
 
-    // Cleanup
-    afterAll(async () => {
-      if (TEST_REVIEW.dappId) {
-        const tx = await sdk.deleteDapp(TEST_REVIEW.dappId, signer);
-        await tx.wait();
-      }
-    });
+    // // Cleanup
+    // afterAll(async () => {
+    //   if (TEST_REVIEW.dappId) {
+    //     const tx = await sdk.deleteDapp(TEST_REVIEW.dappId, signer);
+    //     await tx.wait();
+    //   }
+    // });
   });
 }); 
