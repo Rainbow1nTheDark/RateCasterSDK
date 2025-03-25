@@ -1,4 +1,4 @@
-#RateCaster SDK
+# RateCaster SDK
 A powerful toolkit for integrating decentralized, transparent dApp ratings and reviews directly into your blockchain applications.
 
 ## What is RateCaster?
