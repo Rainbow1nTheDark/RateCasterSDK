@@ -1,29 +1,14 @@
 import { ChainInfo } from "./types";
 
-const SUBGRAPH_KEY = typeof process !== 'undefined' && process.env?.SUBGRAPH_KEY
-  ? process.env.SUBGRAPH_KEY 
-  : '';
-
-// Check if we're in a browser environment
-const isBrowser = typeof window !== 'undefined' && typeof window.document !== 'undefined';
-
-// Build subgraph URLs with environment variable
-const getSubgraphUrl = (path: string) => {
-  if (!SUBGRAPH_KEY && !isBrowser) {
-    console.warn('SUBGRAPH_KEY is not set in environment variables');
-  }
-  return `https://subgraph.satsuma-prod.com/${SUBGRAPH_KEY}/${path}`;
-};
-
-const DEFAULT_SUBGRAPH_URLS = {
-  POLYGON: getSubgraphUrl('alexanders-team--782474/example-subgraph-name/api'),
-  POLYGON_AMOY: getSubgraphUrl('alexanders-team--782474/pol_amoy/version/0.0.2/api')
-};
-
 // Default contract addresses for public networks
 const DEFAULT_ADDRESSES = {
   POLYGON: '0xD6E93AC22B754427077290d660442564BB7E6760',
   POLYGON_AMOY: '0xeF6b5d35874D7a83e78A8555d93999098A53547C'
+};
+
+const DEFAULT_SUBGRAPH_URLS = {
+  POLYGON: 'https://subgraph.satsuma-prod.com/8913ac6ee1bc/alexanders-team--782474/example-subgraph-name/api',
+  POLYGON_AMOY: 'https://subgraph.satsuma-prod.com/8913ac6ee1bc/alexanders-team--782474/pol_amoy/version/0.0.2/api'
 };
 
 // Chain configurations

@@ -1,5 +1,5 @@
 {
-  "name": "@ratecaster/ratecaster-sdk",
+  "name": "ratecaster",
   "version": "0.1.0",
   "description": "SDK for interacting with RateCaster protocol",
   "main": "dist/index.js",
