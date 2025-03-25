@@ -1,4 +1,3 @@
-
 export interface ChainInfo {
   chainId: number;
   name: String;
@@ -20,16 +19,11 @@ export interface DappRegistered {
   description: string;
   name: string;
   url: string;
-  platform: string;
   category: string;
+  imageUrl: string;
+  owner: string
   averageRating?: number;
   totalReviews?: number;
-}
-
-export interface SDKConfig {
-  alchemyKey?: string;
-  contractAddress?: string;
-  subgraphUrl?: string;
 }
 
 export interface GraphQLRequestConfig {
@@ -49,3 +43,5 @@ export interface DappRating {
   starRating: number;
   reviewText: string;
 }
+
+export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'none';

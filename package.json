@@ -1,7 +1,7 @@
 {
   "name": "@ratecaster/ratecaster-sdk",
-  "version": "1.0.0",
-  "description": "SDK for interacting with RateCaster smart contracts",
+  "version": "0.1.0",
+  "description": "SDK for interacting with RateCaster protocol",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
@@ -9,37 +9,32 @@
     "README.md"
   ],
   "scripts": {
-    "build": "tsc && cp .env dist/.env",
-    "test": "jest",
+    "build": "tsc",
     "prepare": "npm run build",
     "prepublishOnly": "npm test",
-    "version": "git add -A src",
-    "postversion": "git push && git push --tags"
+    "test": "jest"
   },
   "keywords": [
     "blockchain",
-    "ethereum",
+    "polygon",
     "ratings",
-    "dapp"
+    "web3",
+    "ethereum"
   ],
-  "author": "Alexander Balandin",
+  "author": "Rainbow1nTheDark",
   "license": "MIT",
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/Rainbow1nTheDark/ratecaster-sdk.git"
+  "publishConfig": {
+    "access": "public"
   },
+  "packageManager": "yarn@3.2.3+sha512.f26f951f67de0c6a33ee381e5ff364709c87e70eb5e65c694e4facde3512f1fa80b8679e6ba31ce7d340fbb46f08dd683af9457e240f25a204be7427940d767e",
   "dependencies": {
-    "ethers": "^6.13.5",
-    "dotenv": "^16.0.3"
+    "dotenv": "^16.4.7",
+    "ethers": "^6.13.5"
   },
   "devDependencies": {
-    "@types/jest": "^29.5.0",
-    "@types/node": "^18.0.0",
-    "jest": "^29.5.0",
-    "ts-jest": "^29.1.0",
-    "typescript": "^5.0.0"
-  },
-  "peerDependencies": {
-    "ethers": "^6.13.5"
+    "@types/jest": "^29.5.14",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.3.0",
+    "ts-node": "^10.9.2"
   }
 }

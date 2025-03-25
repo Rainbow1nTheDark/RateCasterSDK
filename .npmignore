@@ -1,8 +1,10 @@
 src/
 tests/
-jest.config.ts
-tsconfig.json
-.env*
-.gitignore
+test-website/
+src/**/*.test.ts
 coverage/
+.env
+.env.*
+jest.config.js
+tsconfig.json
 node_modules/ 
