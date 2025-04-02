@@ -2,13 +2,13 @@ import { ChainInfo } from "./types";
 
 // Default contract addresses for public networks
 const DEFAULT_ADDRESSES = {
-  POLYGON: '0xD6E93AC22B754427077290d660442564BB7E6760',
-  POLYGON_AMOY: '0xeF6b5d35874D7a83e78A8555d93999098A53547C'
+  POLYGON: '0xC876B28B3CD093402Ed73D85E3d21752a7D30A76',
+  POLYGON_AMOY: '0x9500e6B9CdC0a934abD7Ed496Bf10AC0B1363CDA'
 };
 
 const DEFAULT_SUBGRAPH_URLS = {
-  POLYGON: 'https://subgraph.satsuma-prod.com/8913ac6ee1bc/alexanders-team--782474/example-subgraph-name/api',
-  POLYGON_AMOY: 'https://subgraph.satsuma-prod.com/8913ac6ee1bc/alexanders-team--782474/pol_amoy/version/0.0.2/api'
+  POLYGON: 'https://subgraph.satsuma-prod.com/8913ac6ee1bc/alexanders-team--782474/pol_mainnet/api',
+  POLYGON_AMOY: 'https://subgraph.satsuma-prod.com/8913ac6ee1bc/alexanders-team--782474/pol_amoy/version/0.0.3/api'
 };
 
 // Chain configurations
@@ -191,9 +191,9 @@ export const CHAIN_CONFIGS: Record<number, ChainInfo> = {
         },
         {
           "indexed": false,
-          "internalType": "string",
-          "name": "category",
-          "type": "string"
+          "internalType": "uint16",
+          "name": "categoryId",
+          "type": "uint16"
         },
         {
           "indexed": false,
@@ -246,9 +246,9 @@ export const CHAIN_CONFIGS: Record<number, ChainInfo> = {
         },
         {
           "indexed": false,
-          "internalType": "string",
-          "name": "category",
-          "type": "string"
+          "internalType": "uint16",
+          "name": "categoryId",
+          "type": "uint16"
         },
         {
           "indexed": false,
@@ -460,9 +460,9 @@ export const CHAIN_CONFIGS: Record<number, ChainInfo> = {
           "type": "string"
         },
         {
-          "internalType": "string",
-          "name": "category",
-          "type": "string"
+          "internalType": "uint16",
+          "name": "categoryId",
+          "type": "uint16"
         },
         {
           "internalType": "address",
@@ -518,9 +518,9 @@ export const CHAIN_CONFIGS: Record<number, ChainInfo> = {
               "type": "string"
             },
             {
-              "internalType": "string",
-              "name": "category",
-              "type": "string"
+              "internalType": "uint16",
+              "name": "categoryId",
+              "type": "uint16"
             },
             {
               "internalType": "address",
@@ -574,9 +574,9 @@ export const CHAIN_CONFIGS: Record<number, ChainInfo> = {
               "type": "string"
             },
             {
-              "internalType": "string",
-              "name": "category",
-              "type": "string"
+              "internalType": "uint16",
+              "name": "categoryId",
+              "type": "uint16"
             },
             {
               "internalType": "address",
@@ -666,9 +666,9 @@ export const CHAIN_CONFIGS: Record<number, ChainInfo> = {
           "type": "string"
         },
         {
-          "internalType": "string",
-          "name": "_category",
-          "type": "string"
+          "internalType": "uint16",
+          "name": "_categoryId",
+          "type": "uint16"
         }
       ],
       "name": "registerDapp",
@@ -776,9 +776,9 @@ export const CHAIN_CONFIGS: Record<number, ChainInfo> = {
           "type": "string"
         },
         {
-          "internalType": "string",
-          "name": "_category",
-          "type": "string"
+          "internalType": "uint16",
+          "name": "_categoryId",
+          "type": "uint16"
         }
       ],
       "name": "updateDapp",

@@ -1,6 +1,7 @@
 import { ethers } from 'ethers';
-import { RateCaster } from '../src';
+import { CategoryId, RateCaster } from '../src';
 import { CHAIN_CONFIGS } from '../src/constants';
+
 
 // Ensure we have Amoy chain configuration
 if (!CHAIN_CONFIGS[80002]) {
@@ -20,7 +21,7 @@ const mockRegisterDapp = jest.fn().mockResolvedValue(mockTxResponse);
 const mockUpdateDapp = jest.fn().mockResolvedValue(mockTxResponse);
 const mockDeleteDapp = jest.fn().mockResolvedValue(mockTxResponse);
 
-// Create mock Amoy contract
+// Create mock Amoy contract with categoryId instead of category
 const mockAmoyContract = {
   target: CHAIN_CONFIGS[80002].contractAddress,
   interface: {
@@ -42,7 +43,7 @@ const mockAmoyContract = {
     description: "Test Description on Amoy",
     url: "https://test-amoy.com",
     imageUrl: "https://test-amoy.com/image.png",
-    category: "Testing",
+    categoryId: CategoryId.DEFI_DEX, // Using numeric ID instead of string
     owner: "0xowner"
   }),
   getAllDapps: jest.fn().mockResolvedValue([
@@ -52,7 +53,7 @@ const mockAmoyContract = {
       description: "Test Description on Amoy",
       url: "https://test-amoy.com",
       imageUrl: "https://test-amoy.com/image.png",
-      category: "Testing",
+      categoryId: CategoryId.DEFI_DEX, // Using numeric ID instead of string
       owner: "0xowner"
     }
   ]),
@@ -192,7 +193,7 @@ describe('RateCaster SDK - Polygon Amoy Tests', () => {
       'Amoy Test Description',
       'https://amoy-test.com',
       'https://amoy-test.com/image.png',
-      'Amoy Testing',
+      CategoryId.DEFI_DEX,
       mockSigner
     );
 
@@ -204,12 +205,24 @@ describe('RateCaster SDK - Polygon Amoy Tests', () => {
     const dapp = await sdk.getDapp('0xdappid');
     expect(dapp).not.toBeNull();
     expect(dapp?.name).toBe('Amoy Test Dapp');
+    expect(dapp?.categoryId).toBe(CategoryId.DEFI_DEX); // Check with numeric ID
+    
+    // Also verify the human-readable category string is present and correct
+    expect(dapp?.category).toBeDefined();
+    expect(dapp?.category).toContain('DEX');
+    expect(dapp?.category).toContain('DeFi');
   });
 
   it('should get all dapps from Polygon Amoy', async () => {
     const dapps = await sdk.getAllDapps();
     expect(dapps).toHaveLength(1);
     expect(dapps[0].name).toBe('Amoy Test Dapp');
+    expect(dapps[0].categoryId).toBe(CategoryId.DEFI_DEX); // Check with numeric ID
+    
+    // Also verify the human-readable category string is present and correct
+    expect(dapps[0].category).toBeDefined();
+    expect(dapps[0].category).toContain('DEX');
+    expect(dapps[0].category).toContain('DeFi');
   });
 
   it('should check if dapp is registered on Amoy', async () => {
@@ -238,7 +251,7 @@ describe('RateCaster SDK - Polygon Amoy Tests', () => {
       'Updated description',
       'https://updated-amoy.com',
       'https://updated-amoy.com/image.png',
-      'Updated Category',
+      CategoryId.DEFI_LENDING,
       mockSigner
     );
 
@@ -256,6 +269,78 @@ describe('RateCaster SDK - Polygon Amoy Tests', () => {
 
     expect(mockDeleteDapp).toHaveBeenCalled();
     expect(response).toBe(mockTxResponse);
+  });
+
+  // Tests for category utility functions - now as SDK methods
+  describe('Category Utilities', () => {
+    it('should return a structured category tree', () => {
+      const tree = sdk.getCategoryTree();
+      
+      // Check main structure
+      expect(tree).toBeInstanceOf(Array);
+      expect(tree.length).toBeGreaterThan(0);
+      
+      // Check a specific category
+      const defiCategory = tree.find(c => c.id === CategoryId.DEFI);
+      expect(defiCategory).toBeDefined();
+      expect(defiCategory?.name).toBe("DeFi");
+      expect(defiCategory?.subcategories).toBeInstanceOf(Array);
+      
+      // Check that subcategories exist and are properly structured
+      expect(defiCategory?.subcategories.length).toBeGreaterThan(0);
+      const dexCategory = defiCategory?.subcategories.find(c => c.id === CategoryId.DEFI_DEX);
+      expect(dexCategory).toBeDefined();
+      expect(dexCategory?.name).toBe("DEX");
+    });
+    
+    it('should return a flat list of all categories', () => {
+      const categories = sdk.getAllCategories();
+      
+      // Check structure
+      expect(categories).toBeInstanceOf(Array);
+      expect(categories.length).toBeGreaterThan(0);
+      
+      // Check fields
+      const dexCategory = categories.find(c => c.id === CategoryId.DEFI_DEX);
+      expect(dexCategory).toBeDefined();
+      expect(dexCategory?.name).toBe("DEX");
+      expect(dexCategory?.group).toBe("DeFi");
+      
+      // Check sorting - categories should be grouped
+      let lastGroup = "";
+      let groupValid = true;
+      
+      categories.forEach((cat, i) => {
+        if (i > 0 && cat.group !== lastGroup && lastGroup !== categories[i-1].group) {
+          groupValid = false;
+        }
+        lastGroup = cat.group;
+      });
+      
+      expect(groupValid).toBe(true);
+    });
+    
+    it('should return options suitable for dropdowns', () => {
+      const options = sdk.getCategoryOptions();
+      
+      // Check structure
+      expect(options).toBeInstanceOf(Array);
+      expect(options.length).toBeGreaterThan(0);
+      
+      // Check that main categories are excluded (those ending with 00)
+      const hasMainCategories = options.some(option => option.value % 100 === 0);
+      expect(hasMainCategories).toBe(false);
+      
+      // Check fields
+      const dexOption = options.find(o => o.value === CategoryId.DEFI_DEX);
+      expect(dexOption).toBeDefined();
+      expect(dexOption?.label).toBe("DEX");
+      expect(dexOption?.group).toBe("DeFi");
+      
+      // Check a few more categories
+      expect(options.find(o => o.value === CategoryId.GAMING_RPG)?.label).toBe("RPG");
+      expect(options.find(o => o.value === CategoryId.SOCIAL_MESSAGING)?.group).toBe("Social");
+    });
   });
 
   // New tests for subgraph connection and reviews

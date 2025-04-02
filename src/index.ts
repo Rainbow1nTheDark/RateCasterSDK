@@ -6,7 +6,10 @@ import {
   GraphQLRequestConfig,
   GraphQLResponse,
   DappRating,
-  LogLevel
+  LogLevel,
+  CATEGORY_NAMES, 
+  getAllMainCategories, 
+  getCategoriesByMainCategory 
 } from './types';
 import { CHAIN_CONFIGS, CONTRACT_ABI } from './constants';
 import { Logger } from './utils/logger';
@@ -431,7 +434,7 @@ export class RateCaster {
     description: string,
     url: string,
     imageURL: string,
-    category: string,
+    categoryId: number,
     signer: ethers.Signer
   ): Promise<ethers.ContractTransactionResponse> {
     await this.ensureInitialized();
@@ -451,7 +454,7 @@ export class RateCaster {
         description,
         url,
         imageURL,
-        category,
+        categoryId,
         { value: registrationFee }
       );
       
@@ -484,7 +487,7 @@ export class RateCaster {
     description: string,
     url: string,
     imageURL: string,
-    category: string,
+    categoryId: number,
     signer: ethers.Signer
   ): Promise<ContractTransaction> {
     await this.ensureInitialized();
@@ -505,7 +508,7 @@ export class RateCaster {
         description,
         url,
         imageURL,
-        category
+        categoryId
       );
       
       this.logger.info(`Dapp update transaction sent: ${tx.hash}`);
@@ -563,15 +566,21 @@ export class RateCaster {
       this.logger.debug(`Retrieved ${dapps.length} dapps from contract`);
   
       // Transform contract response to DappRegistered type
-      const transformedDapps: DappRegistered[] = dapps.map((dapp: { dappId: any; name: any; description: any; url: any; imageUrl: any; category: any; owner: any; }) => ({
-        dappId: dapp.dappId,
-        name: dapp.name,
-        description: dapp.description,
-        url: dapp.url,
-        imageUrl: dapp.imageUrl,
-        category: dapp.category,
-        owner: dapp.owner
-      }));
+      const transformedDapps: DappRegistered[] = dapps.map((dapp: { dappId: any; name: any; description: any; url: any; imageUrl: any; categoryId: any; owner: any; }) => {
+        // Get category name from categoryId
+        const category = this.getCategoryNameById(dapp.categoryId);
+        this.logger.debug(`Category: ${category}`);
+        return {
+          dappId: dapp.dappId,
+          name: dapp.name,
+          description: dapp.description,
+          url: dapp.url,
+          imageUrl: dapp.imageUrl,
+          categoryId: dapp.categoryId,
+          category: category, // Add the category name
+          owner: dapp.owner
+        }
+      });
   
       if (!includeRatings) {
         return transformedDapps;
@@ -617,6 +626,9 @@ export class RateCaster {
       // Use contract method instead of GraphQL
       const dapp = await this.contract.getDapp(dappIdBytes32);
       
+      // Get category name from categoryId
+      const category = this.getCategoryNameById(dapp.categoryId);
+      
       // Transform contract response to DappRegistered type
       const transformedDapp: DappRegistered = {
         dappId: dapp.dappId,
@@ -624,7 +636,8 @@ export class RateCaster {
         description: dapp.description,
         url: dapp.url,
         imageUrl: dapp.imageUrl,
-        category: dapp.category,
+        categoryId: dapp.categoryId,
+        category: category, // Add the category name
         owner: dapp.owner
       };
 
@@ -708,6 +721,91 @@ export class RateCaster {
   public getLogLevel(): LogLevel {
     return this.logger.getLevel();
   }
+
+  /**
+ * Returns a structured category tree for frontend display
+ * @returns An array of main categories with their subcategories
+ */
+public getCategoryTree(): Array<{
+  id: number;
+  name: string;
+  subcategories: Array<{ id: number; name: string }>
+}> {
+  // Get all main categories
+  const mainCategories = getAllMainCategories();
+  
+  // For each main category, get its subcategories
+  return mainCategories.map(mainCategory => {
+    // Get all subcategories for this main category
+    const subcategories = getCategoriesByMainCategory(mainCategory.id)
+      // Filter out the main category itself
+      .filter(category => category.id !== mainCategory.id)
+      // Sort subcategories by name
+      .sort((a, b) => a.name.localeCompare(b.name));
+    
+    return {
+      id: mainCategory.id,
+      name: mainCategory.name,
+      subcategories
+    };
+  });
+}
+
+/**
+ * Returns a flat list of all categories for simple selection UIs
+ * @returns An array of all category objects with id and name
+ */
+public getAllCategories(): Array<{ id: number; name: string; group: string }> {
+  return Object.entries(CATEGORY_NAMES).map(([idStr, name]) => {
+    const id = Number(idStr);
+    const mainCategoryId = Math.floor(id / 100) * 100;
+    const group = CATEGORY_NAMES[mainCategoryId] || "Other";
+    
+    return { id, name, group };
+  }).sort((a, b) => {
+    // First sort by group
+    const groupCompare = a.group.localeCompare(b.group);
+    if (groupCompare !== 0) return groupCompare;
+    
+    // Then sort by name within groups
+    return a.name.localeCompare(b.name);
+  });
+}
+
+/**
+ * Returns a list of category options suitable for dropdown or select inputs
+ * @returns An array of options with value and label
+ */
+public getCategoryOptions(): Array<{ value: number; label: string; group: string }> {
+  return this.getAllCategories()
+    .filter(category => category.id % 100 !== 0) // Filter out main categories
+    .map(category => ({
+      value: category.id,
+      label: category.name,
+      group: category.group
+    }));
+}
+
+// Add helper method to get category name from ID
+private getCategoryNameById(categoryId: number): string {
+  // First try to get a detailed category
+  const allCategories = this.getAllCategories();
+  const category = allCategories.find(cat => cat.id === categoryId);
+  
+  if (category) {
+    return `${category.name} (${category.group})`;
+  }
+  
+  // If not found in detailed categories, try the basic CATEGORY_NAMES mapping
+  const categoryName = CATEGORY_NAMES[categoryId];
+  if (categoryName) {
+    return categoryName;
+  }
+  
+  // If we can't find the category name anywhere, return the ID with "Unknown" label
+  return `Unknown (${categoryId})`;
+}
+
 }
 
 // Export types
