@@ -139,14 +139,15 @@ getLogLevel(): string
 - ethers.js v6.0.0 or higher
 
 ## Types
-```
+```typescript
 interface DappRegistered {
   dappId: string;
   name: string;
   description: string;
   url: string;
   imageUrl: string;
-  category: string;
+  categoryId: number;  // Numeric category ID
+  category: string;    // Human-readable category name (automatically populated)
   owner: string;
   averageRating?: number;
   totalReviews?: number;
@@ -161,3 +162,102 @@ interface DappRating {
   rater?: string;
 }
 ```
+
+## Category System
+
+RateCaster uses a hierarchical category system with main categories and subcategories. Each category has a unique numeric ID.
+
+### Helper Functions
+
+```typescript
+// Get all available categories with their groups
+const categories = sdk.getCategoryOptions();
+// Returns: Array<{value: number, label: string, group: string}>
+// Example: [{value: 401, label: "Betting", group: "DeFi"}, ...]
+
+// Get subcategories for a specific main category
+const defiCategories = sdk.getCategoriesByMainCategory(400);
+// Returns all DeFi subcategories
+
+// Get category name from ID
+const categoryName = sdk.getCategoryName(401);
+// Returns: "Betting"
+
+// Get main category name from any category ID
+const mainCategory = sdk.getMainCategoryName(401);
+// Returns: "DeFi"
+```
+
+### Main Categories
+- B2B (100-199)
+- Tools (200-299)
+- DApps (300-399)
+- DeFi (400-499)
+- Social (500-599)
+- NFT (600-699)
+- Gaming (700-799)
+
+### Using Categories
+
+When registering or updating a dapp, use the numeric category ID:
+
+```typescript
+await sdk.registerDapp(
+  "My DeFi App",
+  "Description",
+  "https://myapp.com",
+  "https://myapp.com/image.png",
+  401, // Use numeric category ID for Betting
+  signer
+);
+```
+
+When retrieving dapps, the SDK automatically converts category IDs to human-readable names:
+
+```typescript
+const dapps = await sdk.getAllDapps();
+// Returns:
+{
+  name: "My DeFi App",
+  categoryId: 401,         // Original numeric ID
+  category: "Betting",     // Automatically resolved name
+  // ... other properties
+}
+```
+
+### Category Reference
+
+#### B2B (100-199)
+- 100: B2B
+- 101: Decentralised Storage
+- 102: Decentralised Compute
+- 103: Automation/Bots
+- 104: On Ramp/Off Ramp
+- 105: Dev Tools
+- 106: Explorer
+- 107: Wallet
+- 108: Infrastructure
+- 199: Others
+
+#### DeFi (400-499)
+- 400: DeFi
+- 401: Betting
+- 402: Lending
+- 403: Prediction Market
+- 404: Stablecoin
+- 405: Yield Aggregator
+- 406: Synthetics
+- 407: Insurance
+- 408: Reserve Currency
+- 409: Oracle
+- 410: Lottery
+- 411: Staking
+- 412: DEX
+- 413: Bridge
+- 414: Yield
+- 415: Launchpad
+- 416: Tooling
+- 417: Derivatives
+- 418: Payments
+- 419: Indexes
+- 420: Privacy
