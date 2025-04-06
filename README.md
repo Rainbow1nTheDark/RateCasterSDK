@@ -20,7 +20,7 @@ This SDK provides developers with all the tools needed to:
 
 ## Usage
 ```
-import { RateCaster } from '@alexanders-team/ratecaster-sdk';
+import { RateCaster } from '@ratecaster/sdk';
 import { ethers } from 'ethers';
 
 // Initialize with provider

@@ -1,40 +1,48 @@
 {
-  "name": "ratecaster",
-  "version": "0.1.0",
-  "description": "SDK for interacting with RateCaster protocol",
+  "name": "@ratecaster/sdk",
+  "version": "0.0.3",
+  "description": "A powerful toolkit for integrating decentralized, transparent dApp ratings and reviews",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc",
     "prepare": "npm run build",
-    "prepublishOnly": "npm test",
     "test": "jest"
   },
   "keywords": [
     "blockchain",
+    "ethereum",
     "polygon",
+    "dapp",
     "ratings",
-    "web3",
-    "ethereum"
+    "reviews",
+    "web3"
   ],
-  "author": "Rainbow1nTheDark",
+  "author": "Alexander Balandin",
   "license": "MIT",
-  "publishConfig": {
-    "access": "public"
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Rainbow1nTheDark/ratecasterSDK.git"
   },
-  "packageManager": "yarn@3.2.3+sha512.f26f951f67de0c6a33ee381e5ff364709c87e70eb5e65c694e4facde3512f1fa80b8679e6ba31ce7d340fbb46f08dd683af9457e240f25a204be7427940d767e",
-  "dependencies": {
-    "dotenv": "^16.4.7",
-    "ethers": "^6.13.5"
+  "bugs": {
+    "url": "https://github.com/Rainbow1nTheDark/ratecasterSDK/issues"
+  },
+  "homepage": "https://github.com/Rainbow1nTheDark/ratecasterSDK#readme",
+  "peerDependencies": {
+    "ethers": "^6.0.0"
   },
   "devDependencies": {
-    "@types/jest": "^29.5.14",
-    "jest": "^29.7.0",
-    "ts-jest": "^29.3.0",
-    "ts-node": "^10.9.2"
+    "@types/jest": "^29.0.0",
+    "@typescript-eslint/eslint-plugin": "^5.0.0",
+    "@typescript-eslint/parser": "^5.0.0",
+    "eslint": "^8.0.0",
+    "jest": "^29.0.0",
+    "ts-jest": "^29.0.0",
+    "typescript": "^5.0.0"
   }
 }

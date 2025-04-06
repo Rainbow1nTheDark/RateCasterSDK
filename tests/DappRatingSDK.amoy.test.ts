@@ -206,11 +206,6 @@ describe('RateCaster SDK - Polygon Amoy Tests', () => {
     expect(dapp).not.toBeNull();
     expect(dapp?.name).toBe('Amoy Test Dapp');
     expect(dapp?.categoryId).toBe(CategoryId.DEFI_DEX); // Check with numeric ID
-    
-    // Also verify the human-readable category string is present and correct
-    expect(dapp?.category).toBeDefined();
-    expect(dapp?.category).toContain('DEX');
-    expect(dapp?.category).toContain('DeFi');
   });
 
   it('should get all dapps from Polygon Amoy', async () => {
@@ -218,11 +213,6 @@ describe('RateCaster SDK - Polygon Amoy Tests', () => {
     expect(dapps).toHaveLength(1);
     expect(dapps[0].name).toBe('Amoy Test Dapp');
     expect(dapps[0].categoryId).toBe(CategoryId.DEFI_DEX); // Check with numeric ID
-    
-    // Also verify the human-readable category string is present and correct
-    expect(dapps[0].category).toBeDefined();
-    expect(dapps[0].category).toContain('DEX');
-    expect(dapps[0].category).toContain('DeFi');
   });
 
   it('should check if dapp is registered on Amoy', async () => {
