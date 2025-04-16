@@ -16,7 +16,7 @@ This SDK provides developers with all the tools needed to:
 - Polygon Amoy Testnet (chainId: 80002)
 
 ## Installation
-```npm install ratecaster```
+```npm install @ratecaster/sdk```
 
 ## Usage
 ```

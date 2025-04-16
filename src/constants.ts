@@ -2,12 +2,12 @@ import { ChainInfo } from "./types";
 
 // Default contract addresses for public networks
 const DEFAULT_ADDRESSES = {
-  POLYGON: '0xC876B28B3CD093402Ed73D85E3d21752a7D30A76',
+  POLYGON: '0xa181Cb218C2f12C18BbF624730c195FdE6997595',
   POLYGON_AMOY: '0x9500e6B9CdC0a934abD7Ed496Bf10AC0B1363CDA'
 };
 
 const DEFAULT_SUBGRAPH_URLS = {
-  POLYGON: 'https://subgraph.satsuma-prod.com/8913ac6ee1bc/alexanders-team--782474/pol_mainnet/api',
+  POLYGON: 'https://subgraph.satsuma-prod.com/8913ac6ee1bc/alexanders-team--782474/pol_mainnet/version/v0.0.4/api',
   POLYGON_AMOY: 'https://subgraph.satsuma-prod.com/8913ac6ee1bc/alexanders-team--782474/pol_amoy/version/0.0.3/api'
 };
 
