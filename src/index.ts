@@ -193,11 +193,14 @@ export class RateCaster {
     if (starRating < 1 || starRating > 5) throw new Error('Star rating must be between 1 and 5');
 
     try {
-      const provider = customProvider || this.provider;
       const signerAddress = await signer.getAddress();
       this.logger.info(`Submitting review for dapp ID: ${dappId} from address: ${signerAddress}`);
-      
-      const contract = new Contract(this.chainConfig.contractAddress, CONTRACT_ABI, provider);
+      let contract = this.contract;
+
+      if (customProvider) {
+          contract = new Contract(this.chainConfig.contractAddress, CONTRACT_ABI, customProvider);
+      }
+
       const signedContract = contract.connect(signer) as Contract;
       const dappIdBytes32 = ethers.isHexString(dappId) && dappId.length === 66
         ? dappId
@@ -218,7 +221,7 @@ export class RateCaster {
       this.logger.info(`Review submission transaction sent: ${tx.hash}`);
       this.logger.debug(`Transaction details: gas limit ${tx.gasLimit}, nonce: ${tx.nonce}, overrides: ${JSON.stringify(overrides || {})}`);
       
-      return tx;
+      return tx as ethers.ContractTransactionResponse;
     } catch (error: any) {
       this.logger.error('Review submission failed:', {
         error: error.message || error,
