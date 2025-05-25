@@ -34,7 +34,7 @@
   },
   "homepage": "https://github.com/Rainbow1nTheDark/ratecasterSDK#readme",
   "peerDependencies": {
-    "ethers": "^6.0.0"
+    "ethers": "^6.14.1"
   },
   "devDependencies": {
     "@types/jest": "^29.0.0",

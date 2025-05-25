@@ -5,70 +5,91 @@ import {
   DappRegistered,
   GraphQLRequestConfig,
   GraphQLResponse,
-  DappRating,
   LogLevel,
   CATEGORY_NAMES, 
+  CategoryOption,
   getAllMainCategories, 
   getCategoriesByMainCategory 
 } from './types';
 import { CHAIN_CONFIGS, CONTRACT_ABI } from './constants';
 import { Logger } from './utils/logger';
 
+export const VERSION = '1.0.0';
+
 export class RateCaster {
   private provider: ethers.JsonRpcProvider;
   private contract!: Contract;
+  private contract_socket?: Contract;
   private chainConfig!: ChainInfo;
   private initialized: Promise<void>;
   private logger: Logger;
+  private provider_socket: ethers.WebSocketProvider | undefined;
+  private reviewListener: ethers.Listener | null = null;
 
+  /**
+   * Initializes the RateCaster SDK with a provider.
+   * @param provider - The JSON-RPC provider for blockchain interactions.
+   * @param provider_socket - Optional WebSocket provider for event listening.
+   * @throws Error if the provider is not initialized.
+   */
   constructor(
     provider: ethers.JsonRpcProvider,
-    options: {
-      logLevel?: LogLevel;
-      sdkVersion?: string;
-    } = {}
+    provider_socket?: ethers.WebSocketProvider
   ) {
     if (!provider) {
       throw new Error('Provider is not initialized');
     }
     this.provider = provider;
-    
-    // Initialize logger with custom options
+    this.provider_socket = provider_socket;
     this.logger = new Logger({
-      level: options.logLevel || 'info',
-      prefix: `RateCaster SDK${options.sdkVersion ? ` v${options.sdkVersion}` : ''}`,
+      level: 'info',
+      prefix: `RateCaster SDK}`,
       includeTimestamps: true
     });
 
     this.logger.debug('SDK initialization started');
-    
-    // Initialize asynchronously
     this.initialized = this.initialize();
+  }
+
+  /**
+   * Updates the default provider and reinitializes the contract.
+   * @param newProvider - The new JSON-RPC provider.
+   * @throws Error if the provider is invalid or initialization fails.
+   */
+  public async setProvider(newProvider: ethers.JsonRpcProvider): Promise<void> {
+    try {
+      this.logger.debug('Updating default provider');
+      await newProvider.getNetwork();
+      this.provider = newProvider;
+      await this.initialize();
+      this.logger.info('Default provider updated successfully');
+    } catch (error) {
+      this.logger.error('Failed to set new provider:', error);
+      throw new Error(`Failed to set provider: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   private async initialize(): Promise<void> {
     try {
       const startTime = performance.now();
-      const getNetwork = async () => {
-        const network = await this.provider.getNetwork();
+      const getNetwork = async (provider: ethers.JsonRpcProvider) => {
+        const network = await provider.getNetwork();
         if (!network || typeof network.chainId === 'undefined') {
           throw new Error('Failed to get network from provider');
         }
         return network;
-      }
+      };
 
-      const network = await getNetwork();
+      const network = await getNetwork(this.provider);
       const chainId = Number(network.chainId);
       this.logger.debug(`Network detection completed, chain ID: ${chainId}`);
 
-      // Get chain configuration
       this.chainConfig = CHAIN_CONFIGS[chainId];
       if (!this.chainConfig) {
         throw new Error(`Configuration not found for chain: ${chainId}`);
       }
       this.logger.info(`Connected to ${this.chainConfig.name} (Chain ID: ${chainId})`);
 
-      // Initialize contract
       this.contract = new Contract(
         this.chainConfig.contractAddress,
         CONTRACT_ABI,
@@ -76,6 +97,15 @@ export class RateCaster {
       );
       this.logger.debug(`Contract initialized at ${this.chainConfig.contractAddress}`);
       
+      if (this.provider_socket) {
+        this.contract_socket = new Contract(
+          this.chainConfig.contractAddress,
+          CONTRACT_ABI,
+          this.provider_socket
+        );
+        this.logger.debug(`Contract socket initialized at ${this.chainConfig.contractAddress}`);
+      }
+
       const endTime = performance.now();
       this.logger.debug(`SDK initialization completed in ${(endTime - startTime).toFixed(2)}ms`);
     } catch (error) {
@@ -84,17 +114,21 @@ export class RateCaster {
     }
   }
 
-  // Add this to ensure all public methods wait for initialization
   private async ensureInitialized(): Promise<void> {
     await this.initialized;
   }
 
   private getGraphqlUrl(): string {
-    return this.chainConfig.graphqlUrl
-      ?? this.chainConfig.graphqlUrl;
+    if (!this.chainConfig.graphqlUrl) {
+      this.logger.error('GraphQL URL not configured for this chain');
+      throw new Error('GraphQL URL not configured for this chain');
+    }
+    return this.chainConfig.graphqlUrl;
   }
 
-  private async fetchGraphQL<T>(config: GraphQLRequestConfig): Promise<GraphQLResponse<T> | null> {
+  private async fetchGraphQL<T>(
+    config: GraphQLRequestConfig & { variables?: Record<string, any> }
+  ): Promise<GraphQLResponse<T>> {
     const startTime = performance.now();
     const requestId = Math.random().toString(36).substring(2, 10);
     
@@ -107,7 +141,10 @@ export class RateCaster {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify({ query: config.query }),
+        body: JSON.stringify({
+          query: config.query,
+          variables: config.variables
+        }),
       });
 
       if (!response.ok) {
@@ -120,6 +157,7 @@ export class RateCaster {
       
       if (responseData.errors) {
         this.logger.error(`GraphQL request [${requestId}] returned errors:`, responseData.errors);
+        throw new Error(`GraphQL errors: ${JSON.stringify(responseData.errors)}`);
       }
       
       this.logger.debug(`GraphQL request [${requestId}] completed in ${(endTime - startTime).toFixed(2)}ms`);
@@ -127,48 +165,58 @@ export class RateCaster {
     } catch (error) {
       const endTime = performance.now();
       this.logger.error(`GraphQL request [${requestId}] failed after ${(endTime - startTime).toFixed(2)}ms:`, error);
-      return null;
+      throw new Error(`Failed to fetch GraphQL data: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
-  // Public methods for reviews
+  /**
+   * Submits a review for a dApp with a star rating and text.
+   * @param dappId - The ID of the dApp (string or bytes32).
+   * @param starRating - The rating (1–5).
+   * @param reviewText - The review text.
+   * @param signer - The signer for the transaction.
+   * @param overrides - Optional transaction overrides (e.g., gasLimit, gasPrice).
+   * @param customProvider - Optional provider to override the default.
+   * @returns A promise resolving to the transaction response.
+   * @throws Error if inputs are invalid or the transaction fails.
+   */
   public async submitReview(
     dappId: string,
     starRating: number,
     reviewText: string,
-    signer: ethers.Signer
+    signer: ethers.Signer,
+    overrides?: ethers.Overrides,
+    customProvider?: ethers.JsonRpcProvider
   ): Promise<ethers.ContractTransactionResponse> {
     await this.ensureInitialized();
-    if (starRating < 1 || starRating > 5) {
-      this.logger.error(`Invalid star rating: ${starRating}`);
-      throw new Error('Star rating must be between 1 and 5');
-    }
+    if (!dappId) throw new Error('dappId must be non-empty');
+    if (starRating < 1 || starRating > 5) throw new Error('Star rating must be between 1 and 5');
 
     try {
+      const provider = customProvider || this.provider;
       const signerAddress = await signer.getAddress();
       this.logger.info(`Submitting review for dapp ID: ${dappId} from address: ${signerAddress}`);
       
-      const signedContract = this.contract.connect(signer) as Contract;
+      const contract = new Contract(this.chainConfig.contractAddress, CONTRACT_ABI, provider);
+      const signedContract = contract.connect(signer) as Contract;
       const dappIdBytes32 = ethers.isHexString(dappId) && dappId.length === 66
         ? dappId
         : ethers.keccak256(ethers.toUtf8Bytes(dappId));
       
       this.logger.debug(`Using dappId (bytes32): ${dappIdBytes32}`);
       
-      // Get current fee from contract and add it to the transaction
-      const ratingFee = await this.contract.dappRatingFee();
+      const ratingFee = await signedContract.dappRatingFee();
       this.logger.debug(`Current rating fee: ${ethers.formatEther(ratingFee)} ETH`);
       
-      // Send transaction with fee
       const tx = await signedContract.addDappRating(
         dappIdBytes32,
         starRating,
         reviewText,
-        { value: ratingFee }
+        { value: ratingFee, ...overrides }
       );
       
       this.logger.info(`Review submission transaction sent: ${tx.hash}`);
-      this.logger.debug(`Transaction details: gas limit ${tx.gasLimit}, nonce: ${tx.nonce}`);
+      this.logger.debug(`Transaction details: gas limit ${tx.gasLimit}, nonce: ${tx.nonce}, overrides: ${JSON.stringify(overrides || {})}`);
       
       return tx;
     } catch (error: any) {
@@ -178,35 +226,43 @@ export class RateCaster {
         starRating,
         contractAddress: this.contract.target
       });
-      
-      // Enhanced error details for debugging
-      if (error.code) {
-        this.logger.debug(`Error code: ${error.code}`);
-      }
-      if (error.reason) {
-        this.logger.debug(`Error reason: ${error.reason}`);
-      }
-      if (error.transaction) {
-        this.logger.debug(`Failed transaction: ${JSON.stringify(error.transaction)}`);
-      }
+      if (error.code) this.logger.debug(`Error code: ${error.code}`);
+      if (error.reason) this.logger.debug(`Error reason: ${error.reason}`);
+      if (error.transaction) this.logger.debug(`Failed transaction: ${JSON.stringify(error.transaction)}`);
       
       throw new Error(`Failed to submit review: ${error.message || error}`);
     }
   }
 
+  /**
+   * Revokes a previously submitted review.
+   * @param ratingUid - The unique ID of the review to revoke.
+   * @param signer - The signer for the transaction.
+   * @param overrides - Optional transaction overrides.
+   * @param customProvider - Optional provider to override the default.
+   * @returns A promise resolving to the transaction response.
+   * @throws Error if the transaction fails.
+   */
   public async revokeReview(
     ratingUid: string,
-    signer: ethers.Signer
-  ): Promise<ContractTransaction> {
+    signer: ethers.Signer,
+    overrides?: ethers.Overrides,
+    customProvider?: ethers.JsonRpcProvider
+  ): Promise<ethers.ContractTransactionResponse> {
     await this.ensureInitialized();
+    if (!ratingUid) throw new Error('ratingUid must be non-empty');
+
     try {
+      const provider = customProvider || this.provider;
       const signerAddress = await signer.getAddress();
       this.logger.info(`Revoking review with UID: ${ratingUid} from address: ${signerAddress}`);
       
-      const signedContract = this.contract.connect(signer) as Contract;
-      const tx = await signedContract.revokeDappRating(ratingUid);
+      const contract = new Contract(this.chainConfig.contractAddress, CONTRACT_ABI, provider);
+      const signedContract = contract.connect(signer) as Contract;
+      const tx = await signedContract.revokeDappRating(ratingUid, overrides);
       
       this.logger.info(`Review revocation transaction sent: ${tx.hash}`);
+      this.logger.debug(`Transaction details: gas limit ${tx.gasLimit}, nonce: ${tx.nonce}, overrides: ${JSON.stringify(overrides || {})}`);
       return tx;
     } catch (error: any) {
       this.logger.error(`Failed to revoke review with UID ${ratingUid}:`, error);
@@ -214,63 +270,92 @@ export class RateCaster {
     }
   }
 
-  public async getProjectReviews(projectId: string): Promise<DappRating[]> {
+  /**
+   * Fetches reviews for a specific project.
+   * @param projectId - The ID of the project.
+   * @returns An array of reviews.
+   * @throws Error if fetching reviews fails.
+   */
+  public async getProjectReviews(projectId: string): Promise<DappReview[]> {
     await this.ensureInitialized();
-    this.logger.debug(`Fetching reviews for project ID: ${projectId}`);
-    
+    if (!projectId) throw new Error('projectId must be non-empty');
+
     try {
-      const query = `{ dappRatingSubmitteds {id, attestationId, dappId, starRating, reviewText}}`;
-      const response = await this.fetchGraphQL<{ dappRatingSubmitteds: DappRating[] }>({
+      const query = `
+        query GetProjectReviews($projectId: String!) {
+          dappRatingSubmitteds(where: { dappId: $projectId }) {
+            id
+            attestationId
+            dappId
+            starRating
+            reviewText
+            rater
+          }
+        }
+      `;
+      const response = await this.fetchGraphQL<{ dappRatingSubmitteds: DappReview[] }>({
         endpoint: this.getGraphqlUrl(),
-        query
+        query,
+        variables: { projectId }
       });
       
-      // Filter reviews for this project
-      const allReviews = response?.data.dappRatingSubmitteds || [];
-      const projectReviews = allReviews.filter(review => review.dappId === projectId);
-      
+      const projectReviews = response.data.dappRatingSubmitteds || [];
       this.logger.debug(`Found ${projectReviews.length} reviews for project ${projectId}`);
       return projectReviews;
     } catch (error) {
       this.logger.error(`Failed to fetch reviews for project ${projectId}:`, error);
-      return [];
+      throw new Error(`Failed to fetch project reviews: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
-  public async getUserReviews(userAddress: string): Promise<DappRating[]> {
+  /**
+   * Fetches reviews submitted by a user.
+   * @param userAddress - The user's Ethereum address.
+   * @returns An array of reviews.
+   * @throws Error if fetching reviews fails.
+   */
+  public async getUserReviews(userAddress: string): Promise<DappReview[]> {
     await this.ensureInitialized();
-    this.logger.debug(`Fetching reviews by user: ${userAddress}`);
-    
-    try {
-      const query = `{ 
-        dappRatingSubmitteds(where: { rater: "${userAddress.toLowerCase()}" }) {
-          id
-          rater
-          attestationId
-          dappId
-          starRating
-          reviewText
-        }
-      }`;
+    if (!ethers.isAddress(userAddress)) throw new Error('Invalid user address');
 
-      const response = await this.fetchGraphQL<{ dappRatingSubmitteds: DappRating[] }>({
+    try {
+      const query = `
+        query GetUserReviews($rater: String!) {
+          dappRatingSubmitteds(where: { rater: $rater }) {
+            id
+            rater
+            attestationId
+            dappId
+            starRating
+            reviewText
+          }
+        }
+      `;
+      const response = await this.fetchGraphQL<{ dappRatingSubmitteds: DappReview[] }>({
         endpoint: this.getGraphqlUrl(),
-        query
+        query,
+        variables: { rater: userAddress.toLowerCase() }
       });
       
-      const userReviews = response?.data.dappRatingSubmitteds || [];
+      const userReviews = response.data.dappRatingSubmitteds || [];
       this.logger.debug(`Found ${userReviews.length} reviews by user ${userAddress}`);
       return userReviews;
     } catch (error) {
       this.logger.error(`Failed to fetch reviews for user ${userAddress}:`, error);
-      return [];
+      throw new Error(`Failed to fetch user reviews: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
+  /**
+   * Calculates statistics for a project's reviews.
+   * @param projectId - The ID of the project.
+   * @returns An object with total reviews, average rating, and rating distribution.
+   * @throws Error if fetching reviews fails.
+   */
   public async getProjectStats(projectId: string) {
     await this.ensureInitialized();
-    this.logger.debug(`Calculating statistics for project: ${projectId}`);
-    
+    if (!projectId) throw new Error('projectId must be non-empty');
+
     const reviews = await this.getProjectReviews(projectId);
     const totalReviews = reviews.length;
     
@@ -301,16 +386,32 @@ export class RateCaster {
     return result;
   }
 
-  // Contract state reading methods
-  public async hasUserRatedProject(userAddress: string, projectId: string): Promise<boolean> {
+  /**
+   * Checks if a user has rated a project.
+   * @param userAddress - The user's Ethereum address.
+   * @param projectId - The ID of the project.
+   * @param customProvider - Optional provider to override the default.
+   * @returns True if the user has rated the project, false otherwise.
+   * @throws Error if the query fails.
+   */
+  public async hasUserRatedProject(
+    userAddress: string,
+    projectId: string,
+    customProvider?: ethers.JsonRpcProvider
+  ): Promise<boolean> {
     await this.ensureInitialized();
+    if (!ethers.isAddress(userAddress)) throw new Error('Invalid user address');
+    if (!projectId) throw new Error('projectId must be non-empty');
+
     try {
+      const provider = customProvider || this.provider;
+      const contract = new Contract(this.chainConfig.contractAddress, CONTRACT_ABI, provider);
       const projectIdBytes32 = ethers.isHexString(projectId) && projectId.length === 66
         ? projectId
         : ethers.keccak256(ethers.toUtf8Bytes(projectId));
         
       this.logger.debug(`Checking if user ${userAddress} has rated project ${projectId}`);
-      const rated = await this.contract.raterToProjectToRated(userAddress, projectIdBytes32);
+      const rated = await contract.raterToProjectToRated(userAddress, projectIdBytes32);
       
       this.logger.debug(`User ${userAddress} has${rated ? '' : ' not'} rated project ${projectId}`);
       return rated;
@@ -320,15 +421,29 @@ export class RateCaster {
         projectId,
         error
       });
-      return false;
+      throw new Error(`Failed to check rating status: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
-  public async getUserRatingCount(userAddress: string): Promise<number> {
+  /**
+   * Gets the number of ratings submitted by a user.
+   * @param userAddress - The user's Ethereum address.
+   * @param customProvider - Optional provider to override the default.
+   * @returns The number of ratings.
+   * @throws Error if the query fails.
+   */
+  public async getUserRatingCount(
+    userAddress: string,
+    customProvider?: ethers.JsonRpcProvider
+  ): Promise<number> {
     await this.ensureInitialized();
+    if (!ethers.isAddress(userAddress)) throw new Error('Invalid user address');
+
     try {
+      const provider = customProvider || this.provider;
+      const contract = new Contract(this.chainConfig.contractAddress, CONTRACT_ABI, provider);
       this.logger.debug(`Fetching rating count for user: ${userAddress}`);
-      const count = await this.contract.raterToNumberOfRates(userAddress);
+      const count = await contract.raterToNumberOfRates(userAddress);
       
       this.logger.debug(`User ${userAddress} has submitted ${count} ratings`);
       return Number(count);
@@ -337,19 +452,33 @@ export class RateCaster {
         userAddress,
         error
       });
-      return 0;
+      throw new Error(`Failed to fetch rating count: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
-  public async getProjectRatingCount(projectId: string): Promise<number> {
+  /**
+   * Gets the number of ratings for a project.
+   * @param projectId - The ID of the project.
+   * @param customProvider - Optional provider to override the default.
+   * @returns The number of ratings.
+   * @throws Error if the query fails.
+   */
+  public async getProjectRatingCount(
+    projectId: string,
+    customProvider?: ethers.JsonRpcProvider
+  ): Promise<number> {
     await this.ensureInitialized();
+    if (!projectId) throw new Error('projectId must be non-empty');
+
     try {
+      const provider = customProvider || this.provider;
+      const contract = new Contract(this.chainConfig.contractAddress, CONTRACT_ABI, provider);
       const projectIdBytes32 = ethers.isHexString(projectId) && projectId.length === 66
         ? projectId
         : ethers.keccak256(ethers.toUtf8Bytes(projectId));
         
       this.logger.debug(`Fetching rating count for project: ${projectId}`);
-      const count = await this.contract.dappRatingsCount(projectIdBytes32);
+      const count = await contract.dappRatingsCount(projectIdBytes32);
       
       this.logger.debug(`Project ${projectId} has ${count} ratings`);
       return Number(count);
@@ -358,20 +487,30 @@ export class RateCaster {
         projectId,
         error
       });
-      return 0;
+      throw new Error(`Failed to fetch rating count: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
+  /**
+   * Gets the current chain configuration.
+   * @returns The chain configuration.
+   */
   public getCurrentChain(): ChainInfo {
     return this.chainConfig;
   }
 
-  // Utility methods
-  public async validateConnection(): Promise<boolean> {
+  /**
+   * Validates the connection to the blockchain.
+   * @param customProvider - Optional provider to override the default.
+   * @returns True if the connection is valid, false otherwise.
+   * @throws Error if validation fails.
+   */
+  public async validateConnection(customProvider?: ethers.JsonRpcProvider): Promise<boolean> {
     await this.ensureInitialized();
     try {
+      const provider = customProvider || this.provider;
       this.logger.debug('Validating network connection');
-      const network = await this.provider.getNetwork();
+      const network = await provider.getNetwork();
       const expectedChainId = this.chainConfig.chainId;
       
       const isValid = network.chainId === BigInt(expectedChainId);
@@ -380,86 +519,140 @@ export class RateCaster {
       return isValid;
     } catch (error) {
       this.logger.error('Connection validation failed:', error);
-      return false;
+      throw new Error(`Failed to validate connection: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
+  /**
+   * Gets the contract address.
+   * @returns The contract address.
+   */
   public getContractAddress(): string {
     return this.contract.target as string;
   }
 
+  /**
+   * Gets the blockchain explorer URL.
+   * @returns The explorer URL.
+   */
   public getExplorerUrl(): string {
     return this.chainConfig.explorer;
   }
 
+  /**
+   * Listens for new review events.
+   * @param callback - Function to call when a review is submitted.
+   * @returns The contract instance.
+   * @throws Error if WebSocket provider is not defined.
+   */
   public async listenToReviews(
     callback: (review: DappReview) => void
   ): Promise<Contract> {
     await this.ensureInitialized();
+    if (!this.contract_socket) {
+      throw new Error('Socket Provider is not defined, cannot listen to events. Please pass it to RateCaster constructor');
+    }
+
     this.logger.info('Started listening for new reviews');
     
-    this.contract.on("DappRatingSubmitted", 
-      (
-        attestationId: string,
-        dappId: string,
-        starRating: number,
-        reviewText: string,
-        event: ethers.EventLog
-      ) => {
-        this.logger.debug(`Received new review event: attestation ${attestationId.substring(0, 10)}...`);
-        
-        return callback({
-          id: attestationId,
-          attestationId,
-          dappId: typeof dappId === 'string' && dappId.startsWith('0x')
-            ? ethers.toUtf8String(dappId)
-            : dappId,
-          starRating: Number(starRating),
-          reviewText
-        });
+    this.reviewListener = async (
+      event_rater: string,
+      event_attestationId: string,
+      event_dappId: string,
+      event_starRating: number,
+      event_reviewText: string,
+      event: ethers.EventLog 
+    ) => {
+      this.logger.debug(`SDK: DappRatingSubmitted event received: attestationId ${event_attestationId}`);
+      let timestamp = Date.now(); // Fallback
+      try {
+        const block = await event.getBlock();
+        if (block && typeof block.timestamp === 'number') {
+          timestamp = block.timestamp * 1000; // Convert seconds to milliseconds
+        } else {
+            this.logger.warn(`SDK: Could not get block or timestamp for event: ${event_attestationId}`);
+        }
+      } catch(e: any) {
+        this.logger.warn(`SDK: Error fetching block for event ${event_attestationId}: ${e.message}`);
       }
-    );
-    return this.contract;
+      const reviewForCallback: DappReview = {
+        id: event_attestationId, 
+        attestationId: event_attestationId,
+        dappId: event_dappId,
+        starRating: Number(event_starRating),
+        reviewText: event_reviewText,
+        rater: event_rater
+      };
+      callback(reviewForCallback);
+    };
+    this.contract_socket.on("DappRatingSubmitted", this.reviewListener);
+    return this.contract_socket;
   }
 
+  /**
+   * Stops listening for review events.
+   */
   public async stopListening(): Promise<void> {
     await this.ensureInitialized();
-    this.logger.info('Stopped listening for events');
-    this.contract.removeAllListeners();
+    if (this.contract_socket && this.reviewListener) {
+      this.contract_socket.off("DappRatingSubmitted", this.reviewListener);
+      this.reviewListener = null;
+      this.logger.info('Stopped listening for DappRatingSubmitted events');
+    }
   }
 
-  // New methods for Dapp management
+  /**
+   * Registers a new dApp.
+   * @param name - The dApp name.
+   * @param description - The dApp description.
+   * @param url - The dApp URL.
+   * @param imageURL - The dApp image URL.
+   * @param categoryId - The category ID.
+   * @param signer - The signer for the transaction.
+   * @param overrides - Optional transaction overrides.
+   * @param customProvider - Optional provider to override the default.
+   * @returns A promise resolving to the transaction response.
+   * @throws Error if inputs are invalid or the transaction fails.
+   */
   public async registerDapp(
     name: string,
     description: string,
     url: string,
     imageURL: string,
     categoryId: number,
-    signer: ethers.Signer
+    signer: ethers.Signer,
+    overrides?: ethers.Overrides,
+    customProvider?: ethers.JsonRpcProvider
   ): Promise<ethers.ContractTransactionResponse> {
     await this.ensureInitialized();
+    if (!name || name.length > 100) throw new Error('Name must be non-empty and at most 100 characters');
+    if (description.length > 1000) throw new Error('Description must be at most 1000 characters');
+    if (!url || !/^https?:\/\//.test(url)) throw new Error('URL must be a valid HTTP/HTTPS URL');
+    if (!imageURL || !/^https?:\/\//.test(imageURL)) throw new Error('Image URL must be a valid HTTP/HTTPS URL');
+    if (!this.getAllCategories().some(cat => cat.id === categoryId)) throw new Error(`Invalid category ID: ${categoryId}`);
+
     try {
+      const provider = customProvider || this.provider;
       const signerAddress = await signer.getAddress();
       this.logger.info(`Registering dapp "${name}" from address: ${signerAddress}`);
       
-      const signedContract = this.contract.connect(signer) as Contract;
+      const contract = new Contract(this.chainConfig.contractAddress, CONTRACT_ABI, provider);
+      const signedContract = contract.connect(signer) as Contract;
       
-      // Get current registration fee and include it in the transaction
-      const registrationFee = await this.contract.dappRegistrationFee();
+      const registrationFee = await signedContract.dappRegistrationFee();
       this.logger.debug(`Current registration fee: ${ethers.formatEther(registrationFee)} ETH`);
       
-      // Send transaction with registration fee
       const tx = await signedContract.registerDapp(
         name,
         description,
         url,
         imageURL,
         categoryId,
-        { value: registrationFee }
+        { value: registrationFee, ...overrides }
       );
       
       this.logger.info(`Dapp registration transaction sent: ${tx.hash}`);
-      this.logger.debug(`Transaction details: gas limit ${tx.gasLimit}, nonce: ${tx.nonce}`);
+      this.logger.debug(`Transaction details: gas limit ${tx.gasLimit}, nonce: ${tx.nonce}, overrides: ${JSON.stringify(overrides || {})}`);
       
       return tx;
     } catch (error: any) {
@@ -468,19 +661,27 @@ export class RateCaster {
         url,
         error: error.message || error
       });
-      
-      // Enhanced error details
-      if (error.code) {
-        this.logger.debug(`Error code: ${error.code}`);
-      }
-      if (error.reason) {
-        this.logger.debug(`Error reason: ${error.reason}`);
-      }
+      if (error.code) this.logger.debug(`Error code: ${error.code}`);
+      if (error.reason) this.logger.debug(`Error reason: ${error.reason}`);
       
       throw new Error(`Failed to register dapp: ${error.message || error}`);
     }
   }
 
+  /**
+   * Updates an existing dApp.
+   * @param dappId - The dApp ID.
+   * @param name - The dApp name.
+   * @param description - The dApp description.
+   * @param url - The dApp URL.
+   * @param imageURL - The dApp image URL.
+   * @param categoryId - The category ID.
+   * @param signer - The signer for the transaction.
+   * @param overrides - Optional transaction overrides.
+   * @param customProvider - Optional provider to override the default.
+   * @returns A promise resolving to the transaction response.
+   * @throws Error if inputs are invalid or the transaction fails.
+   */
   public async updateDapp(
     dappId: string,
     name: string,
@@ -488,17 +689,28 @@ export class RateCaster {
     url: string,
     imageURL: string,
     categoryId: number,
-    signer: ethers.Signer
-  ): Promise<ContractTransaction> {
+    signer: ethers.Signer,
+    overrides?: ethers.Overrides,
+    customProvider?: ethers.JsonRpcProvider
+  ): Promise<ethers.ContractTransactionResponse> {
     await this.ensureInitialized();
+    if (!dappId) throw new Error('dappId must be non-empty');
+    if (!name || name.length > 100) throw new Error('Name must be non-empty and at most 100 characters');
+    if (!description || description.length > 1000) throw new Error('Description must be non-empty and at most 1000 characters');
+    if (!url || !/^https?:\/\//.test(url)) throw new Error('URL must be a valid HTTP/HTTPS URL');
+    if (!imageURL || !/^https?:\/\//.test(imageURL)) throw new Error('Image URL must be a valid HTTP/HTTPS URL');
+    if (!this.getAllCategories().some(cat => cat.id === categoryId)) throw new Error(`Invalid category ID: ${categoryId}`);
+
     try {
+      const provider = customProvider || this.provider;
       const signerAddress = await signer.getAddress();
       this.logger.info(`Updating dapp with ID: ${dappId} from address: ${signerAddress}`);
       
-      const signedContract = this.contract.connect(signer) as Contract;
+      const contract = new Contract(this.chainConfig.contractAddress, CONTRACT_ABI, provider);
+      const signedContract = contract.connect(signer) as Contract;
       const dappIdBytes32 = ethers.isHexString(dappId) && dappId.length === 66
         ? dappId
-        : ethers.keccak256(ethers.toUtf8Bytes(url));
+        : ethers.keccak256(ethers.toUtf8Bytes(dappId));
         
       this.logger.debug(`Using dappId (bytes32): ${dappIdBytes32}`);
       
@@ -508,10 +720,12 @@ export class RateCaster {
         description,
         url,
         imageURL,
-        categoryId
+        categoryId,
+        overrides
       );
       
       this.logger.info(`Dapp update transaction sent: ${tx.hash}`);
+      this.logger.debug(`Transaction details: gas limit ${tx.gasćLimit}, nonce: ${tx.nonce}, overrides: ${JSON.stringify(overrides || {})}`);
       return tx;
     } catch (error: any) {
       this.logger.error('Error updating dapp:', {
@@ -523,26 +737,40 @@ export class RateCaster {
     }
   }
 
+  /**
+   * Deletes a dApp.
+   * @param dappId - The dApp ID.
+   * @param signer - The signer for the transaction.
+   * @param overrides - Optional transaction overrides.
+   * @param customProvider - Optional provider to override the default.
+   * @returns A promise resolving to the transaction response.
+   * @throws Error if inputs are invalid or the transaction fails.
+   */
   public async deleteDapp(
     dappId: string,
-    signer: ethers.Signer
+    signer: ethers.Signer,
+    overrides?: ethers.Overrides,
+    customProvider?: ethers.JsonRpcProvider
   ): Promise<ethers.ContractTransactionResponse> {
     await this.ensureInitialized();
+    if (!dappId) throw new Error('dappId must be non-empty');
+
     try {
+      const provider = customProvider || this.provider;
       const signerAddress = await signer.getAddress();
       this.logger.info(`Deleting dapp with ID: ${dappId} from address: ${signerAddress}`);
       
-      const signedContract = this.contract.connect(signer) as Contract;
+      const contract = new Contract(this.chainConfig.contractAddress, CONTRACT_ABI, provider);
+      const signedContract = contract.connect(signer) as Contract;
       const dappIdBytes32 = ethers.isHexString(dappId) && dappId.length === 66
         ? dappId
         : ethers.keccak256(ethers.toUtf8Bytes(dappId));
         
       this.logger.debug(`Using dappId (bytes32): ${dappIdBytes32}`);
-
-      // Send transaction with default gas settings
-      const tx = await signedContract.deleteDapp(dappIdBytes32);
+      const tx = await signedContract.deleteDapp(dappIdBytes32, overrides);
       
       this.logger.info(`Dapp deletion transaction sent: ${tx.hash}`);
+      this.logger.debug(`Transaction details: gas limit ${tx.gasLimit}, nonce: ${tx.nonce}, overrides: ${JSON.stringify(overrides || {})}`);
       return tx;
     } catch (error: any) {
       this.logger.error('Error deleting dapp:', {
@@ -553,23 +781,29 @@ export class RateCaster {
     }
   }
 
-  // New methods for fetching Dapp information
-  public async getAllDapps(includeRatings: boolean = true): Promise<DappRegistered[]> {
+  /**
+   * Fetches all registered dApps.
+   * @param includeRatings - Whether to include ratings data.
+   * @param customProvider - Optional provider to override the default.
+   * @returns An array of dApp information.
+   * @throws Error if fetching dApps fails.
+   */
+  public async getAllDapps(
+    includeRatings: boolean = true,
+    customProvider?: ethers.JsonRpcProvider
+  ): Promise<DappRegistered[]> {
     await this.ensureInitialized();
     this.logger.debug(`Fetching all dapps (with ratings: ${includeRatings})`);
     
     try {
       const startTime = performance.now();
-      
-      // Use contract method instead of GraphQL
-      const dapps = await this.contract.getAllDapps();
+      const provider = customProvider || this.provider;
+      const contract = new Contract(this.chainConfig.contractAddress, CONTRACT_ABI, provider);
+      const dapps = await contract.getAllDapps();
       this.logger.debug(`Retrieved ${dapps.length} dapps from contract`);
   
-      // Transform contract response to DappRegistered type
-      const transformedDapps: DappRegistered[] = dapps.map((dapp: { dappId: any; name: any; description: any; url: any; imageUrl: any; categoryId: any; owner: any; }) => {
-        // Get category name from categoryId
+      const transformedDapps: DappRegistered[] = dapps.map((dapp: any) => {
         const category = this.getCategoryNameById(dapp.categoryId);
-        this.logger.debug(`Category: ${category}`);
         return {
           dappId: dapp.dappId,
           name: dapp.name,
@@ -577,59 +811,79 @@ export class RateCaster {
           url: dapp.url,
           imageUrl: dapp.imageUrl,
           categoryId: dapp.categoryId,
-          category: category, // Add the category name
+          category,
           owner: dapp.owner
-        }
+        };
       });
   
       if (!includeRatings) {
         return transformedDapps;
       }
   
-      // If ratings are requested, fetch them for each dapp
-      const dappsWithRatings = await Promise.all(
-        transformedDapps.map(async (dapp) => {
-          const ratings = await this.getProjectReviews(dapp.dappId);
-          const totalReviews = ratings.length;
-          const averageRating = totalReviews > 0
-            ? ratings.reduce((sum, r) => sum + Number(r.starRating), 0) / totalReviews
-            : 0;
+      const query = `
+        query {
+          dappRatingSubmitteds {
+            dappId
+            starRating
+          }
+        }
+      `;
+      const response = await this.fetchGraphQL<{ dappRatingSubmitteds: { dappId: string; starRating: number }[] }>({
+        endpoint: this.getGraphqlUrl(),
+        query
+      });
   
-          return {
-            ...dapp,
-            averageRating,
-            totalReviews
-          };
-        })
-      );
+      const reviews = response.data.dappRatingSubmitteds || [];
+      const dappsWithRatings = transformedDapps.map(dapp => {
+        const dappReviews = reviews.filter(r => r.dappId === dapp.dappId);
+        const totalReviews = dappReviews.length;
+        const averageRating = totalReviews > 0
+          ? dappReviews.reduce((sum, r) => sum + r.starRating, 0) / totalReviews
+          : 0;
+  
+        return {
+          ...dapp,
+          averageRating,
+          totalReviews
+        };
+      });
   
       const endTime = performance.now();
       this.logger.debug(`Processed dapp data in ${(endTime - startTime).toFixed(2)}ms`);
-      
       return dappsWithRatings;
     } catch (error) {
       this.logger.error('Failed to fetch dapps:', error);
-      throw [];
+      throw new Error(`Failed to fetch dapps: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
-  public async getDapp(dappId: string, includeRatings: boolean = true): Promise<DappRegistered | null> {
+  /**
+   * Fetches information for a specific dApp.
+   * @param dappId - The dApp ID.
+   * @param includeRatings - Whether to include ratings data.
+   * @param customProvider - Optional provider to override the default.
+   * @returns The dApp information or null if not found.
+   * @throws Error if fetching the dApp fails.
+   */
+  public async getDapp(
+    dappId: string,
+    includeRatings: boolean = true,
+    customProvider?: ethers.JsonRpcProvider
+  ): Promise<DappRegistered> {
     await this.ensureInitialized();
-    this.logger.debug(`Fetching dapp with ID: ${dappId} (with ratings: ${includeRatings})`);
-    
+    if (!dappId) throw new Error('dappId must be non-empty');
+
     try {
-      // Convert dappId to bytes32 if needed
+      const provider = customProvider || this.provider;
+      const contract = new Contract(this.chainConfig.contractAddress, CONTRACT_ABI, provider);
       const dappIdBytes32 = ethers.isHexString(dappId) && dappId.length === 66
         ? dappId
         : ethers.keccak256(ethers.toUtf8Bytes(dappId));
       
-      // Use contract method instead of GraphQL
-      const dapp = await this.contract.getDapp(dappIdBytes32);
+      this.logger.debug(`Fetching dapp with ID: ${dappId} (with ratings: ${includeRatings})`);
+      const dapp = await contract.getDapp(dappIdBytes32);
       
-      // Get category name from categoryId
       const category = this.getCategoryNameById(dapp.categoryId);
-      
-      // Transform contract response to DappRegistered type
       const transformedDapp: DappRegistered = {
         dappId: dapp.dappId,
         name: dapp.name,
@@ -637,7 +891,7 @@ export class RateCaster {
         url: dapp.url,
         imageUrl: dapp.imageUrl,
         categoryId: dapp.categoryId,
-        category: category, // Add the category name
+        category,
         owner: dapp.owner
       };
 
@@ -645,11 +899,8 @@ export class RateCaster {
         return transformedDapp;
       }
 
-      // Fetch ratings if requested
       this.logger.debug(`Fetching ratings for dapp ID: ${dappId}`);
       const ratings = await this.getProjectReviews(dappId);
-      this.logger.debug(`Retrieved ${ratings.length} ratings for dapp ID: ${dappId}`);
-      
       const totalReviews = ratings.length;
       const averageRating = totalReviews > 0
         ? ratings.reduce((sum, r) => sum + Number(r.starRating), 0) / totalReviews
@@ -660,26 +911,39 @@ export class RateCaster {
         averageRating,
         totalReviews
       };
-    } catch (error: unknown) {
-      // Check if the error is because the dapp doesn't exist
-      if (error instanceof Error && error.message?.includes("Dapp not registered")) {
+    } catch (error: any) {
+      if (error.message?.includes("Dapp not registered")) {
         this.logger.debug(`Dapp with ID ${dappId} not found`);
-        return null;
+        throw new Error(`Dapp not found: ${dappId}`);
       }
       this.logger.error(`Failed to fetch dapp with ID ${dappId}:`, error);
-      throw error;
+      throw new Error(`Failed to fetch dapp: ${error.message || error}`);
     }
   }
 
-  public async isDappRegistered(dappId: string): Promise<boolean> {
+  /**
+   * Checks if a dApp is registered.
+   * @param dappId - The dApp ID.
+   * @param customProvider - Optional provider to override the default.
+   * @returns True if the dApp is registered, false otherwise.
+   * @throws Error if the query fails.
+   */
+  public async isDappRegistered(
+    dappId: string,
+    customProvider?: ethers.JsonRpcProvider
+  ): Promise<boolean> {
     await this.ensureInitialized();
+    if (!dappId) throw new Error('dappId must be non-empty');
+
     try {
+      const provider = customProvider || this.provider;
+      const contract = new Contract(this.chainConfig.contractAddress, CONTRACT_ABI, provider);
       const dappIdBytes32 = ethers.isHexString(dappId) && dappId.length === 66
         ? dappId
         : ethers.keccak256(ethers.toUtf8Bytes(dappId));
         
       this.logger.debug(`Checking if dapp is registered with ID: ${dappId}`);
-      const isRegistered = await this.contract.isDappRegistered(dappIdBytes32);
+      const isRegistered = await contract.isDappRegistered(dappIdBytes32);
       
       this.logger.debug(`Dapp ${dappId} is ${isRegistered ? '' : 'not '}registered`);
       return isRegistered;
@@ -688,125 +952,125 @@ export class RateCaster {
         dappId,
         error
       });
-      return false;
+      throw new Error(`Failed to check dapp registration: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
 
-  public async getAllReviews(): Promise<DappRating[]> {
+  /**
+   * Fetches all reviews.
+   * @returns An array of all reviews.
+   * @throws Error if fetching reviews fails.
+   */
+  public async getAllReviews(): Promise<DappReview[]> {
     await this.ensureInitialized();
     this.logger.debug('Fetching all reviews');
     
     try {
-      const query = `{ dappRatingSubmitteds {id, attestationId, dappId, starRating, reviewText}}`;
-      const response = await this.fetchGraphQL<{ dappRatingSubmitteds: DappRating[] }>({
+      const query = `
+        query {
+          dappRatingSubmitteds {
+            id
+            attestationId
+            dappId
+            starRating
+            reviewText
+            rater
+          }
+        }
+      `;
+      const response = await this.fetchGraphQL<{ dappRatingSubmitteds: DappReview[] }>({
         endpoint: this.getGraphqlUrl(),
         query
       });
       
-      const reviews = response?.data.dappRatingSubmitteds || [];
+      const reviews = response.data.dappRatingSubmitteds || [];
       this.logger.debug(`Retrieved ${reviews.length} total reviews`);
       return reviews;
     } catch (error) {
       this.logger.error('Failed to fetch all reviews:', error);
-      return [];
+      throw new Error(`Failed to fetch reviews: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
   
-  // Logger control methods for users
+  /**
+   * Sets the logging level.
+   * @param level - The log level (e.g., 'info', 'debug').
+   */
   public setLogLevel(level: LogLevel): void {
     this.logger.setLevel(level);
     this.logger.debug(`Log level set to: ${level}`);
   }
   
+  /**
+   * Gets the current logging level.
+   * @returns The current log level.
+   */
   public getLogLevel(): LogLevel {
     return this.logger.getLevel();
   }
 
   /**
- * Returns a structured category tree for frontend display
- * @returns An array of main categories with their subcategories
- */
-public getCategoryTree(): Array<{
-  id: number;
-  name: string;
-  subcategories: Array<{ id: number; name: string }>
-}> {
-  // Get all main categories
-  const mainCategories = getAllMainCategories();
-  
-  // For each main category, get its subcategories
-  return mainCategories.map(mainCategory => {
-    // Get all subcategories for this main category
-    const subcategories = getCategoriesByMainCategory(mainCategory.id)
-      // Filter out the main category itself
-      .filter(category => category.id !== mainCategory.id)
-      // Sort subcategories by name
-      .sort((a, b) => a.name.localeCompare(b.name));
+   * Returns a structured category tree for frontend display.
+   * @returns An array of main categories with their subcategories.
+   */
+  public getCategoryTree(): Array<{
+    id: number;
+    name: string;
+    subcategories: Array<{ id: number; name: string }>
+  }> {
+    const mainCategories = getAllMainCategories();
+    return mainCategories.map(mainCategory => {
+      const subcategories = getCategoriesByMainCategory(mainCategory.id)
+        .filter(category => category.id !== mainCategory.id)
+        .sort((a, b) => a.name.localeCompare(b.name));
     
-    return {
-      id: mainCategory.id,
-      name: mainCategory.name,
-      subcategories
-    };
-  });
-}
-
-/**
- * Returns a flat list of all categories for simple selection UIs
- * @returns An array of all category objects with id and name
- */
-public getAllCategories(): Array<{ id: number; name: string; group: string }> {
-  return Object.entries(CATEGORY_NAMES).map(([idStr, name]) => {
-    const id = Number(idStr);
-    const mainCategoryId = Math.floor(id / 100) * 100;
-    const group = CATEGORY_NAMES[mainCategoryId] || "Other";
-    
-    return { id, name, group };
-  }).sort((a, b) => {
-    // First sort by group
-    const groupCompare = a.group.localeCompare(b.group);
-    if (groupCompare !== 0) return groupCompare;
-    
-    // Then sort by name within groups
-    return a.name.localeCompare(b.name);
-  });
-}
-
-/**
- * Returns a list of category options suitable for dropdown or select inputs
- * @returns An array of options with value and label
- */
-public getCategoryOptions(): Array<{ value: number; label: string; group: string }> {
-  return this.getAllCategories()
-    .filter(category => category.id % 100 !== 0) // Filter out main categories
-    .map(category => ({
-      value: category.id,
-      label: category.name,
-      group: category.group
-    }));
-}
-
-// Add helper method to get category name from ID
-private getCategoryNameById(categoryId: number): string {
-  // First try to get a detailed category
-  const allCategories = this.getAllCategories();
-  const category = allCategories.find(cat => cat.id === categoryId);
-  
-  if (category) {
-    return `${category.name} (${category.group})`;
+      return {
+        id: mainCategory.id,
+        name: mainCategory.name,
+        subcategories
+      };
+    });
   }
-  
-  // If not found in detailed categories, try the basic CATEGORY_NAMES mapping
-  const categoryName = CATEGORY_NAMES[categoryId];
-  if (categoryName) {
-    return categoryName;
+
+  /**
+   * Returns a flat list of all categories for simple selection UIs.
+   * @returns An array of all category objects with id, name, and group.
+   */
+  public getAllCategories(): Array<{ id: number; name: string; group: string }> {
+    return Object.entries(CATEGORY_NAMES).map(([idStr, name]) => {
+      const id = Number(idStr);
+      const mainCategoryId = Math.floor(id / 100) * 100;
+      const group = CATEGORY_NAMES[mainCategoryId] || "Other";
+      return { id, name, group };
+    }).sort((a, b) => {
+      const groupCompare = a.group.localeCompare(b.group);
+      if (groupCompare !== 0) return groupCompare;
+      return a.name.localeCompare(b.name);
+    });
   }
-  
-  // If we can't find the category name anywhere, return the ID with "Unknown" label
-  return `Unknown (${categoryId})`;
+
+  /**
+   * Returns a list of category options for dropdown or select inputs.
+   * @returns An array of options with value, label, and group.
+   */
+  public getCategoryOptions(): CategoryOption[] {
+    return this.getAllCategories()
+      .filter(category => category.id % 100 !== 0)
+      .map(category => ({
+        value: category.id,
+        label: category.name,
+        group: category.group
+      }));
+  }
+
+  public getCategoryNameById(categoryId: number): string {
+    const allCategories = this.getAllCategories();
+    const category = allCategories.find(cat => cat.id === categoryId);
+    if (category) return `${category.name} (${category.group})`;
+    const categoryName = CATEGORY_NAMES[categoryId];
+    if (categoryName) return categoryName;
+    return `Unknown (${categoryId})`;
+  }
 }
 
-}
-
-// Export types
 export * from './types';

@@ -11,6 +11,7 @@ export interface DappReview {
   attestationId: string;
   dappId: string;
   starRating: number;
+  rater: string;
   reviewText: string;
 }
 
@@ -37,15 +38,14 @@ export interface GraphQLResponse<T> {
   errors?: Array<{ message: string }>;
 }
 
-export interface DappRating {
-  id: string;
-  attestationId: string;
-  dappId: string;
-  starRating: number;
-  reviewText: string;
-}
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error' | 'none';
+
+export interface CategoryOption {
+  value: number;
+  label: string;
+  group: string;
+}
 
 // Category System
 export enum CategoryId {

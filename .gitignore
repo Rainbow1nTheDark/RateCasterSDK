@@ -19,6 +19,7 @@ out
 
 # Test website
 test-website
+ratecaster-frontend
 
 # IDE and OS files
 .DS_Store
