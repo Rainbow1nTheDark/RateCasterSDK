@@ -1,20 +1,25 @@
+
 import { ethers, Contract, ContractTransaction } from 'ethers';
-import { 
-  ChainInfo, 
-  DappReview,
-  DappRegistered,
+import {
+  ChainInfo,
+  DappReview as SDKDappReviewType, // Renaming for explicit re-export
+  DappRegistered as SDKDappRegisteredType, // Renaming for explicit re-export
   GraphQLRequestConfig,
   GraphQLResponse,
   LogLevel,
-  CATEGORY_NAMES, 
+  CATEGORY_NAMES,
   CategoryOption,
-  getAllMainCategories, 
-  getCategoriesByMainCategory 
+  getAllMainCategories,
+  getCategoriesByMainCategory
 } from './types';
 import { CHAIN_CONFIGS, CONTRACT_ABI } from './constants';
 import { Logger } from './utils/logger';
 
 export const VERSION = '1.0.0';
+
+// Explicit re-export for potentially problematic types
+export type DappReview = SDKDappReviewType;
+export type DappRegistered = SDKDappRegisteredType;
 
 export class RateCaster {
   private provider: ethers.JsonRpcProvider;
@@ -96,7 +101,7 @@ export class RateCaster {
         this.provider
       );
       this.logger.debug(`Contract initialized at ${this.chainConfig.contractAddress}`);
-      
+
       if (this.provider_socket) {
         this.contract_socket = new Contract(
           this.chainConfig.contractAddress,
@@ -131,11 +136,11 @@ export class RateCaster {
   ): Promise<GraphQLResponse<T>> {
     const startTime = performance.now();
     const requestId = Math.random().toString(36).substring(2, 10);
-    
+
     try {
       this.logger.debug(`GraphQL request [${requestId}] to ${config.endpoint.split('/').slice(-2).join('/')}`);
       this.logger.debug(`Query [${requestId}]: ${config.query.substring(0, 100)}${config.query.length > 100 ? '...' : ''}`);
-      
+
       const response = await fetch(config.endpoint, {
         method: "POST",
         headers: {
@@ -154,12 +159,12 @@ export class RateCaster {
 
       const responseData = (await response.json()) as GraphQLResponse<T>;
       const endTime = performance.now();
-      
+
       if (responseData.errors) {
         this.logger.error(`GraphQL request [${requestId}] returned errors:`, responseData.errors);
         throw new Error(`GraphQL errors: ${JSON.stringify(responseData.errors)}`);
       }
-      
+
       this.logger.debug(`GraphQL request [${requestId}] completed in ${(endTime - startTime).toFixed(2)}ms`);
       return responseData;
     } catch (error) {
@@ -205,22 +210,22 @@ export class RateCaster {
       const dappIdBytes32 = ethers.isHexString(dappId) && dappId.length === 66
         ? dappId
         : ethers.keccak256(ethers.toUtf8Bytes(dappId));
-      
+
       this.logger.debug(`Using dappId (bytes32): ${dappIdBytes32}`);
-      
+
       const ratingFee = await signedContract.dappRatingFee();
       this.logger.debug(`Current rating fee: ${ethers.formatEther(ratingFee)} ETH`);
-      
+
       const tx = await signedContract.addDappRating(
         dappIdBytes32,
         starRating,
         reviewText,
         { value: ratingFee, ...overrides }
       );
-      
+
       this.logger.info(`Review submission transaction sent: ${tx.hash}`);
       this.logger.debug(`Transaction details: gas limit ${tx.gasLimit}, nonce: ${tx.nonce}, overrides: ${JSON.stringify(overrides || {})}`);
-      
+
       return tx as ethers.ContractTransactionResponse;
     } catch (error: any) {
       this.logger.error('Review submission failed:', {
@@ -232,7 +237,7 @@ export class RateCaster {
       if (error.code) this.logger.debug(`Error code: ${error.code}`);
       if (error.reason) this.logger.debug(`Error reason: ${error.reason}`);
       if (error.transaction) this.logger.debug(`Failed transaction: ${JSON.stringify(error.transaction)}`);
-      
+
       throw new Error(`Failed to submit review: ${error.message || error}`);
     }
   }
@@ -259,11 +264,11 @@ export class RateCaster {
       const provider = customProvider || this.provider;
       const signerAddress = await signer.getAddress();
       this.logger.info(`Revoking review with UID: ${ratingUid} from address: ${signerAddress}`);
-      
+
       const contract = new Contract(this.chainConfig.contractAddress, CONTRACT_ABI, provider);
       const signedContract = contract.connect(signer) as Contract;
       const tx = await signedContract.revokeDappRating(ratingUid, overrides);
-      
+
       this.logger.info(`Review revocation transaction sent: ${tx.hash}`);
       this.logger.debug(`Transaction details: gas limit ${tx.gasLimit}, nonce: ${tx.nonce}, overrides: ${JSON.stringify(overrides || {})}`);
       return tx;
@@ -279,7 +284,7 @@ export class RateCaster {
    * @returns An array of reviews.
    * @throws Error if fetching reviews fails.
    */
-  public async getProjectReviews(projectId: string): Promise<DappReview[]> {
+  public async getProjectReviews(projectId: string): Promise<SDKDappReviewType[]> {
     await this.ensureInitialized();
     if (!projectId) throw new Error('projectId must be non-empty');
 
@@ -296,12 +301,12 @@ export class RateCaster {
           }
         }
       `;
-      const response = await this.fetchGraphQL<{ dappRatingSubmitteds: DappReview[] }>({
+      const response = await this.fetchGraphQL<{ dappRatingSubmitteds: SDKDappReviewType[] }>({
         endpoint: this.getGraphqlUrl(),
         query,
         variables: { projectId }
       });
-      
+
       const projectReviews = response.data.dappRatingSubmitteds || [];
       this.logger.debug(`Found ${projectReviews.length} reviews for project ${projectId}`);
       return projectReviews;
@@ -317,7 +322,7 @@ export class RateCaster {
    * @returns An array of reviews.
    * @throws Error if fetching reviews fails.
    */
-  public async getUserReviews(userAddress: string): Promise<DappReview[]> {
+  public async getUserReviews(userAddress: string): Promise<SDKDappReviewType[]> {
     await this.ensureInitialized();
     if (!ethers.isAddress(userAddress)) throw new Error('Invalid user address');
 
@@ -334,12 +339,12 @@ export class RateCaster {
           }
         }
       `;
-      const response = await this.fetchGraphQL<{ dappRatingSubmitteds: DappReview[] }>({
+      const response = await this.fetchGraphQL<{ dappRatingSubmitteds: SDKDappReviewType[] }>({
         endpoint: this.getGraphqlUrl(),
         query,
         variables: { rater: userAddress.toLowerCase() }
       });
-      
+
       const userReviews = response.data.dappRatingSubmitteds || [];
       this.logger.debug(`Found ${userReviews.length} reviews by user ${userAddress}`);
       return userReviews;
@@ -361,7 +366,7 @@ export class RateCaster {
 
     const reviews = await this.getProjectReviews(projectId);
     const totalReviews = reviews.length;
-    
+
     if (totalReviews === 0) {
       this.logger.debug(`No reviews found for project ${projectId}`);
       return {
@@ -370,9 +375,9 @@ export class RateCaster {
         ratingDistribution: { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 }
       };
     }
-    
+
     const averageRating = reviews.reduce((acc, review) => acc + review.starRating, 0) / totalReviews;
-    
+
     const result = {
       totalReviews,
       averageRating: averageRating || 0,
@@ -384,7 +389,7 @@ export class RateCaster {
         5: reviews.filter(r => r.starRating === 5).length,
       }
     };
-    
+
     this.logger.debug(`Project ${projectId} stats: avg rating ${result.averageRating.toFixed(2)}, total reviews: ${totalReviews}`);
     return result;
   }
@@ -412,10 +417,10 @@ export class RateCaster {
       const projectIdBytes32 = ethers.isHexString(projectId) && projectId.length === 66
         ? projectId
         : ethers.keccak256(ethers.toUtf8Bytes(projectId));
-        
+
       this.logger.debug(`Checking if user ${userAddress} has rated project ${projectId}`);
       const rated = await contract.raterToProjectToRated(userAddress, projectIdBytes32);
-      
+
       this.logger.debug(`User ${userAddress} has${rated ? '' : ' not'} rated project ${projectId}`);
       return rated;
     } catch (error) {
@@ -447,7 +452,7 @@ export class RateCaster {
       const contract = new Contract(this.chainConfig.contractAddress, CONTRACT_ABI, provider);
       this.logger.debug(`Fetching rating count for user: ${userAddress}`);
       const count = await contract.raterToNumberOfRates(userAddress);
-      
+
       this.logger.debug(`User ${userAddress} has submitted ${count} ratings`);
       return Number(count);
     } catch (error) {
@@ -479,10 +484,10 @@ export class RateCaster {
       const projectIdBytes32 = ethers.isHexString(projectId) && projectId.length === 66
         ? projectId
         : ethers.keccak256(ethers.toUtf8Bytes(projectId));
-        
+
       this.logger.debug(`Fetching rating count for project: ${projectId}`);
       const count = await contract.dappRatingsCount(projectIdBytes32);
-      
+
       this.logger.debug(`Project ${projectId} has ${count} ratings`);
       return Number(count);
     } catch (error) {
@@ -515,10 +520,10 @@ export class RateCaster {
       this.logger.debug('Validating network connection');
       const network = await provider.getNetwork();
       const expectedChainId = this.chainConfig.chainId;
-      
+
       const isValid = network.chainId === BigInt(expectedChainId);
       this.logger.debug(`Connection validation ${isValid ? 'succeeded' : 'failed'}: expected chain ID ${expectedChainId}, got ${network.chainId}`);
-      
+
       return isValid;
     } catch (error) {
       this.logger.error('Connection validation failed:', error);
@@ -549,7 +554,7 @@ export class RateCaster {
    * @throws Error if WebSocket provider is not defined.
    */
   public async listenToReviews(
-    callback: (review: DappReview) => void
+    callback: (review: SDKDappReviewType) => void
   ): Promise<Contract> {
     await this.ensureInitialized();
     if (!this.contract_socket) {
@@ -557,14 +562,14 @@ export class RateCaster {
     }
 
     this.logger.info('Started listening for new reviews');
-    
+
     this.reviewListener = async (
       event_rater: string,
       event_attestationId: string,
       event_dappId: string,
       event_starRating: number,
       event_reviewText: string,
-      event: ethers.EventLog 
+      event: ethers.EventLog
     ) => {
       this.logger.debug(`SDK: DappRatingSubmitted event received: attestationId ${event_attestationId}`);
       let timestamp = Date.now(); // Fallback
@@ -578,13 +583,14 @@ export class RateCaster {
       } catch(e: any) {
         this.logger.warn(`SDK: Error fetching block for event ${event_attestationId}: ${e.message}`);
       }
-      const reviewForCallback: DappReview = {
-        id: event_attestationId, 
+      const reviewForCallback: SDKDappReviewType = {
+        id: event_attestationId,
         attestationId: event_attestationId,
         dappId: event_dappId,
         starRating: Number(event_starRating),
         reviewText: event_reviewText,
-        rater: event_rater
+        rater: event_rater,
+        timestamp: timestamp,
       };
       callback(reviewForCallback);
     };
@@ -594,15 +600,24 @@ export class RateCaster {
 
   /**
    * Stops listening for review events.
+   * @param eventName - Optional: the specific event to stop listening to. If not provided, stops "DappRatingSubmitted".
    */
-  public async stopListening(): Promise<void> {
+  public async stopListening(eventName?: string): Promise<void> {
     await this.ensureInitialized();
-    if (this.contract_socket && this.reviewListener) {
+    const targetEvent = eventName || "DappRatingSubmitted";
+
+    if (this.contract_socket && this.reviewListener && targetEvent === "DappRatingSubmitted") {
       this.contract_socket.off("DappRatingSubmitted", this.reviewListener);
-      this.reviewListener = null;
+      this.reviewListener = null; // Clear the stored listener specifically for DappRatingSubmitted
       this.logger.info('Stopped listening for DappRatingSubmitted events');
+    } else if (this.contract_socket && eventName) {
+      // This part could be expanded if the SDK handles other listeners generically
+      this.logger.warn(`Stop listening called for an event ('${eventName}') not specifically managed by this targeted stopListening logic, or DappRatingSubmitted listener was not active.`);
+    } else if (!this.contract_socket) {
+        this.logger.warn('Socket contract not initialized, cannot stop listening.');
     }
   }
+
 
   /**
    * Registers a new dApp.
@@ -638,13 +653,13 @@ export class RateCaster {
       const provider = customProvider || this.provider;
       const signerAddress = await signer.getAddress();
       this.logger.info(`Registering dapp "${name}" from address: ${signerAddress}`);
-      
+
       const contract = new Contract(this.chainConfig.contractAddress, CONTRACT_ABI, provider);
       const signedContract = contract.connect(signer) as Contract;
-      
+
       const registrationFee = await signedContract.dappRegistrationFee();
       this.logger.debug(`Current registration fee: ${ethers.formatEther(registrationFee)} ETH`);
-      
+
       const tx = await signedContract.registerDapp(
         name,
         description,
@@ -653,10 +668,10 @@ export class RateCaster {
         categoryId,
         { value: registrationFee, ...overrides }
       );
-      
+
       this.logger.info(`Dapp registration transaction sent: ${tx.hash}`);
       this.logger.debug(`Transaction details: gas limit ${tx.gasLimit}, nonce: ${tx.nonce}, overrides: ${JSON.stringify(overrides || {})}`);
-      
+
       return tx;
     } catch (error: any) {
       this.logger.error('Error registering dapp:', {
@@ -666,7 +681,7 @@ export class RateCaster {
       });
       if (error.code) this.logger.debug(`Error code: ${error.code}`);
       if (error.reason) this.logger.debug(`Error reason: ${error.reason}`);
-      
+
       throw new Error(`Failed to register dapp: ${error.message || error}`);
     }
   }
@@ -708,15 +723,15 @@ export class RateCaster {
       const provider = customProvider || this.provider;
       const signerAddress = await signer.getAddress();
       this.logger.info(`Updating dapp with ID: ${dappId} from address: ${signerAddress}`);
-      
+
       const contract = new Contract(this.chainConfig.contractAddress, CONTRACT_ABI, provider);
       const signedContract = contract.connect(signer) as Contract;
       const dappIdBytes32 = ethers.isHexString(dappId) && dappId.length === 66
         ? dappId
         : ethers.keccak256(ethers.toUtf8Bytes(dappId));
-        
+
       this.logger.debug(`Using dappId (bytes32): ${dappIdBytes32}`);
-      
+
       const tx = await signedContract.updateDapp(
         dappIdBytes32,
         name,
@@ -726,9 +741,9 @@ export class RateCaster {
         categoryId,
         overrides
       );
-      
+
       this.logger.info(`Dapp update transaction sent: ${tx.hash}`);
-      this.logger.debug(`Transaction details: gas limit ${tx.gasćLimit}, nonce: ${tx.nonce}, overrides: ${JSON.stringify(overrides || {})}`);
+      this.logger.debug(`Transaction details: gas limit ${tx.gasLimit}, nonce: ${tx.nonce}, overrides: ${JSON.stringify(overrides || {})}`);
       return tx;
     } catch (error: any) {
       this.logger.error('Error updating dapp:', {
@@ -762,16 +777,16 @@ export class RateCaster {
       const provider = customProvider || this.provider;
       const signerAddress = await signer.getAddress();
       this.logger.info(`Deleting dapp with ID: ${dappId} from address: ${signerAddress}`);
-      
+
       const contract = new Contract(this.chainConfig.contractAddress, CONTRACT_ABI, provider);
       const signedContract = contract.connect(signer) as Contract;
       const dappIdBytes32 = ethers.isHexString(dappId) && dappId.length === 66
         ? dappId
         : ethers.keccak256(ethers.toUtf8Bytes(dappId));
-        
+
       this.logger.debug(`Using dappId (bytes32): ${dappIdBytes32}`);
       const tx = await signedContract.deleteDapp(dappIdBytes32, overrides);
-      
+
       this.logger.info(`Dapp deletion transaction sent: ${tx.hash}`);
       this.logger.debug(`Transaction details: gas limit ${tx.gasLimit}, nonce: ${tx.nonce}, overrides: ${JSON.stringify(overrides || {})}`);
       return tx;
@@ -794,18 +809,18 @@ export class RateCaster {
   public async getAllDapps(
     includeRatings: boolean = true,
     customProvider?: ethers.JsonRpcProvider
-  ): Promise<DappRegistered[]> {
+  ): Promise<SDKDappRegisteredType[]> {
     await this.ensureInitialized();
     this.logger.debug(`Fetching all dapps (with ratings: ${includeRatings})`);
-    
+
     try {
       const startTime = performance.now();
       const provider = customProvider || this.provider;
       const contract = new Contract(this.chainConfig.contractAddress, CONTRACT_ABI, provider);
       const dapps = await contract.getAllDapps();
       this.logger.debug(`Retrieved ${dapps.length} dapps from contract`);
-  
-      const transformedDapps: DappRegistered[] = dapps.map((dapp: any) => {
+
+      const transformedDapps: SDKDappRegisteredType[] = dapps.map((dapp: any) => {
         const category = this.getCategoryNameById(dapp.categoryId);
         return {
           dappId: dapp.dappId,
@@ -818,11 +833,11 @@ export class RateCaster {
           owner: dapp.owner
         };
       });
-  
+
       if (!includeRatings) {
         return transformedDapps;
       }
-  
+
       const query = `
         query {
           dappRatingSubmitteds {
@@ -835,7 +850,7 @@ export class RateCaster {
         endpoint: this.getGraphqlUrl(),
         query
       });
-  
+
       const reviews = response.data.dappRatingSubmitteds || [];
       const dappsWithRatings = transformedDapps.map(dapp => {
         const dappReviews = reviews.filter(r => r.dappId === dapp.dappId);
@@ -843,14 +858,14 @@ export class RateCaster {
         const averageRating = totalReviews > 0
           ? dappReviews.reduce((sum, r) => sum + r.starRating, 0) / totalReviews
           : 0;
-  
+
         return {
           ...dapp,
           averageRating,
           totalReviews
         };
       });
-  
+
       const endTime = performance.now();
       this.logger.debug(`Processed dapp data in ${(endTime - startTime).toFixed(2)}ms`);
       return dappsWithRatings;
@@ -872,7 +887,7 @@ export class RateCaster {
     dappId: string,
     includeRatings: boolean = true,
     customProvider?: ethers.JsonRpcProvider
-  ): Promise<DappRegistered> {
+  ): Promise<SDKDappRegisteredType> {
     await this.ensureInitialized();
     if (!dappId) throw new Error('dappId must be non-empty');
 
@@ -882,12 +897,12 @@ export class RateCaster {
       const dappIdBytes32 = ethers.isHexString(dappId) && dappId.length === 66
         ? dappId
         : ethers.keccak256(ethers.toUtf8Bytes(dappId));
-      
+
       this.logger.debug(`Fetching dapp with ID: ${dappId} (with ratings: ${includeRatings})`);
       const dapp = await contract.getDapp(dappIdBytes32);
-      
+
       const category = this.getCategoryNameById(dapp.categoryId);
-      const transformedDapp: DappRegistered = {
+      const transformedDapp: SDKDappRegisteredType = {
         dappId: dapp.dappId,
         name: dapp.name,
         description: dapp.description,
@@ -944,10 +959,10 @@ export class RateCaster {
       const dappIdBytes32 = ethers.isHexString(dappId) && dappId.length === 66
         ? dappId
         : ethers.keccak256(ethers.toUtf8Bytes(dappId));
-        
+
       this.logger.debug(`Checking if dapp is registered with ID: ${dappId}`);
       const isRegistered = await contract.isDappRegistered(dappIdBytes32);
-      
+
       this.logger.debug(`Dapp ${dappId} is ${isRegistered ? '' : 'not '}registered`);
       return isRegistered;
     } catch (error) {
@@ -964,10 +979,10 @@ export class RateCaster {
    * @returns An array of all reviews.
    * @throws Error if fetching reviews fails.
    */
-  public async getAllReviews(): Promise<DappReview[]> {
+  public async getAllReviews(): Promise<SDKDappReviewType[]> {
     await this.ensureInitialized();
     this.logger.debug('Fetching all reviews');
-    
+
     try {
       const query = `
         query {
@@ -981,11 +996,11 @@ export class RateCaster {
           }
         }
       `;
-      const response = await this.fetchGraphQL<{ dappRatingSubmitteds: DappReview[] }>({
+      const response = await this.fetchGraphQL<{ dappRatingSubmitteds: SDKDappReviewType[] }>({
         endpoint: this.getGraphqlUrl(),
         query
       });
-      
+
       const reviews = response.data.dappRatingSubmitteds || [];
       this.logger.debug(`Retrieved ${reviews.length} total reviews`);
       return reviews;
@@ -994,7 +1009,7 @@ export class RateCaster {
       throw new Error(`Failed to fetch reviews: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }
-  
+
   /**
    * Sets the logging level.
    * @param level - The log level (e.g., 'info', 'debug').
@@ -1003,7 +1018,7 @@ export class RateCaster {
     this.logger.setLevel(level);
     this.logger.debug(`Log level set to: ${level}`);
   }
-  
+
   /**
    * Gets the current logging level.
    * @returns The current log level.
@@ -1026,7 +1041,7 @@ export class RateCaster {
       const subcategories = getCategoriesByMainCategory(mainCategory.id)
         .filter(category => category.id !== mainCategory.id)
         .sort((a, b) => a.name.localeCompare(b.name));
-    
+
       return {
         id: mainCategory.id,
         name: mainCategory.name,
@@ -1040,10 +1055,15 @@ export class RateCaster {
    * @returns An array of all category objects with id, name, and group.
    */
   public getAllCategories(): Array<{ id: number; name: string; group: string }> {
-    return Object.entries(CATEGORY_NAMES).map(([idStr, name]) => {
+    return Object.entries(CATEGORY_NAMES).map(([idStr, catNameValue]) => {
       const id = Number(idStr);
       const mainCategoryId = Math.floor(id / 100) * 100;
-      const group = CATEGORY_NAMES[mainCategoryId] || "Other";
+      const groupValue = CATEGORY_NAMES[mainCategoryId] || "Other";
+
+      // Ensure catNameValue and groupValue are strings
+      const name = String(catNameValue);
+      const group = String(groupValue);
+
       return { id, name, group };
     }).sort((a, b) => {
       const groupCompare = a.group.localeCompare(b.group);
@@ -1071,7 +1091,7 @@ export class RateCaster {
     const category = allCategories.find(cat => cat.id === categoryId);
     if (category) return `${category.name} (${category.group})`;
     const categoryName = CATEGORY_NAMES[categoryId];
-    if (categoryName) return categoryName;
+    if (categoryName) return String(categoryName); // Ensure string
     return `Unknown (${categoryId})`;
   }
 }

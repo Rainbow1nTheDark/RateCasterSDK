@@ -13,6 +13,7 @@ export interface DappReview {
   starRating: number;
   rater: string;
   reviewText: string;
+  timestamp?: number;
 }
 
 export interface DappRegistered {
